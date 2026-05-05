@@ -13,14 +13,20 @@ const pipeToInterpreter =
 // 3.3 Process substitution into shell: `<(curl ...)` / `<(wget ...)`.
 const processSubstitutionFetch = /<\(\s*(?:curl|wget)\b[^)]*\)/gi
 
-// 3.5 `eval "$(curl ...)"` and friends.
-const evalNetworkFetch = /eval\s+"?\$\(\s*(?:curl|wget)\b[^)]*\)"?/gi
+// 3.5 `eval $(curl ...)` and friends. The leading/trailing `"` is intentionally
+// not matched: when the body is JSON-serialized those become `\"` and consuming
+// only the `"` would leave an orphan `\` that corrupts the JSON envelope.
+const evalNetworkFetch = /eval\s+\$\(\s*(?:curl|wget)\b[^)]*\)/gi
 
-// 3.6 `bash -c "$(curl ...)"` / `sh -c "$(curl ...)"`.
-const shellDashCNetworkFetch = /(\b(?:sh|bash|zsh)\s+-c\s+)"?\$\(\s*(?:curl|wget)\b[^)]*\)"?/gi
+// 3.6 `bash -c $(curl ...)` / `sh -c $(curl ...)`. See note on 3.5: the
+// surrounding `"` is deliberately excluded to keep the JSON envelope intact.
+const shellDashCNetworkFetch = /(\b(?:sh|bash|zsh)\s+-c\s+)\$\(\s*(?:curl|wget)\b[^)]*\)/gi
 
-// 3.7 Reverse shell via `>& /dev/tcp/HOST/PORT` (with optional `bash -i`/`sh -i` prefix).
-const reverseShellDevTcp = /(?:\b(?:sh|bash)\s+-i\s+)?>\s*&\s*\/dev\/tcp\/[^\s]+/gi
+// 3.7 Reverse shell via `>& /dev/tcp/HOST/PORT` (with optional `bash -i`/`sh -i`
+// prefix). The host/port matcher is bounded to hostname/IPv4 + numeric port so
+// it cannot consume JSON structural characters (`"`, `}`, `,`) when the body
+// lacks the typical ` 0>&1` tail. IPv6 reverse shells are not covered.
+const reverseShellDevTcp = /(?:\b(?:sh|bash)\s+-i\s+)?>\s*&\s*\/dev\/tcp\/[\w.-]+\/\d+/gi
 
 // 3.8 Reverse shell via `nc -e /bin/sh` / `ncat -e /bin/bash`.
 // Note: spec section 3.8 regex `\bn(?:cat)?\b...` doesn't match `nc` (no word
@@ -46,7 +52,7 @@ const reverseShellRuby = /ruby\s+-rsocket\s+-e\s+['"][^'"]*['"]/gi
  */
 export const sanitizeRequestBody = (body: string): string =>
   body
-    .replace(shellDashCNetworkFetch, '$1"{{redacted-network-exec}}"')
+    .replace(shellDashCNetworkFetch, '$1{{redacted-network-exec}}')
     .replace(evalNetworkFetch, 'eval {{redacted-network-eval}}')
     .replace(processSubstitutionFetch, '<({{redacted-network-fetch}})')
     .replace(reverseShellDevTcp, '{{redacted-reverse-shell}}')
