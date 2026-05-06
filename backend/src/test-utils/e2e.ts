@@ -5,7 +5,7 @@
 import { mock } from 'bun:test'
 import type { SearchExaClient } from '@/api/search'
 import { challengeTokenHeader } from '@/auth/otp-constants'
-import { user, waitlist } from '@/db/schema'
+import { session as sessionTable, user, waitlist } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import type { db as DbType } from '@/db/client'
 import type { DnsLookup } from '@/utils/url-validation'
@@ -111,6 +111,18 @@ export const createTestApp = async (
   const users = await db.select().from(user).where(eq(user.email, email))
   if (users.length === 0) {
     throw new Error(`e2e: user ${email} was not created during sign-in`)
+  }
+
+  // Verify the session row backing the bearer is actually persisted before
+  // returning. Without this, a race between sign-in's cookie-set and the
+  // session insert leaves the bearer un-validatable, surfacing as a 401 on
+  // the first authenticated request from the test (the failure looks like a
+  // proxy/auth bug but is a setup race). Better-auth signs the bearer as
+  // `<sessionToken>.<hmac>`, so the row's `token` column is the prefix.
+  const sessionToken = bearerToken.split('.')[0]
+  const sessions = await db.select().from(sessionTable).where(eq(sessionTable.token, sessionToken))
+  if (sessions.length === 0) {
+    throw new Error(`e2e: session row for bearer not visible in DB after sign-in (token=${sessionToken})`)
   }
 
   return {
