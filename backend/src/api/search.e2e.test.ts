@@ -2,44 +2,35 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-// Set the env BEFORE any module evaluates getSettings() — getExaClient is memoised
-// in globalThis and returns null forever on the first miss.
-process.env.EXA_API_KEY = 'test-key'
-
 import { afterEach, describe, expect, it, mock } from 'bun:test'
-import { clearSettingsCache } from '@/config/settings'
 
-clearSettingsCache()
-
-// Stub Exa BEFORE the app is built. The search route lazily imports getExaClient
-// from its module — by mocking exa-js here we intercept that path.
-const fakeSearch = mock(async (_q: string, _opts: unknown) => ({
-  results: [
-    {
-      id: '1',
-      title: 'Public site',
-      url: 'https://example.com/post',
-      image: 'http://example.com/cover.png', // forces http -> https upgrade in the route
-      favicon: 'https://example.com/favicon.ico',
-    },
-    {
-      id: '2',
-      title: null,
-      url: 'http://example.org/another', // forces http -> https upgrade
-      image: null,
-      favicon: null,
-    },
-  ],
-}))
-
-mock.module('exa-js', () => ({
-  Exa: class {
-    search = fakeSearch
-    getContents = mock(async () => ({ results: [] }))
-  },
-}))
-
+import type { SearchExaClient } from '@/api/search'
 import { authHeaders, createTestApp, type TestAppHandle } from '@/test-utils/e2e'
+
+/** Build a stub Exa client whose `search` returns the canned results below.
+ *  Passed to createTestApp via dep injection — replaces `mock.module('exa-js')`,
+ *  which would leak across files (see docs/development/testing.md). */
+const createStubExaClient = (): SearchExaClient => {
+  const search = mock(async (_q: string, _opts: unknown) => ({
+    results: [
+      {
+        id: '1',
+        title: 'Public site',
+        url: 'https://example.com/post',
+        image: 'http://example.com/cover.png', // forces http -> https upgrade in the route
+        favicon: 'https://example.com/favicon.ico',
+      },
+      {
+        id: '2',
+        title: null,
+        url: 'http://example.org/another', // forces http -> https upgrade
+        image: null,
+        favicon: null,
+      },
+    ],
+  }))
+  return { search: search as unknown as SearchExaClient['search'] }
+}
 
 describe('GET /v1/search — e2e', () => {
   let handle: TestAppHandle
@@ -49,7 +40,7 @@ describe('GET /v1/search — e2e', () => {
   })
 
   it('returns normalised results with HTTPS-only URLs', async () => {
-    handle = await createTestApp({})
+    handle = await createTestApp({ searchExaClient: createStubExaClient() })
     const res = await handle.app.handle(
       new Request('http://localhost/v1/search?q=hello&limit=5', {
         method: 'GET',
@@ -76,7 +67,7 @@ describe('GET /v1/search — e2e', () => {
   })
 
   it('returns 401 for unauthenticated requests', async () => {
-    handle = await createTestApp({})
+    handle = await createTestApp({ searchExaClient: createStubExaClient() })
     const res = await handle.app.handle(new Request('http://localhost/v1/search?q=hello', { method: 'GET' }))
     expect(res.status).toBe(401)
   })

@@ -6,6 +6,13 @@ import { promises as dnsPromises } from 'node:dns'
 import { isIP } from 'node:net'
 import ipaddr from 'ipaddr.js'
 
+/** DNS lookup used by URL validation. Shape mirrors `dns.promises.lookup(host, { all: true })`.
+ *  Injected as a dep so tests can substitute a deterministic resolver without
+ *  `mock.module('node:dns')` (which leaks across files — see docs/development/testing.md). */
+export type DnsLookup = (hostname: string) => Promise<Array<{ address: string; family: number }>>
+
+const defaultDnsLookup: DnsLookup = (hostname) => dnsPromises.lookup(hostname, { all: true })
+
 /** IP ranges blocked for SSRF protection. Excludes multicast (could block legitimate CDN traffic). */
 const blockedRanges = new Set([
   'private', // 10/8, 172.16/12, 192.168/16
@@ -78,6 +85,7 @@ const maxRedirects = 5
 export const validateAndPin = async (
   url: string,
   extraHeaders?: HeadersInit,
+  dnsLookup: DnsLookup = defaultDnsLookup,
 ): Promise<[pinnedUrl: string, headers: Headers]> => {
   const parsed = new URL(url)
   parsed.username = ''
@@ -91,7 +99,7 @@ export const validateAndPin = async (
     return [parsed.toString(), new Headers(extraHeaders)]
   }
 
-  const addresses = await dnsPromises.lookup(hostname, { all: true })
+  const addresses = await dnsLookup(hostname)
   if (!addresses.length) throw new Error(`DNS resolution returned no addresses for ${hostname}`)
 
   for (const { address } of addresses) {
@@ -117,10 +125,10 @@ export const validateAndPin = async (
  * Uses IP pinning: resolves the hostname, validates IPs, then connects directly
  * to the resolved IP with the original Host header for TLS SNI / virtual hosting.
  */
-export const createSafeFetch = (fetchFn: typeof fetch) => {
+export const createSafeFetch = (fetchFn: typeof fetch, dnsLookup: DnsLookup = defaultDnsLookup) => {
   return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-    const [pinnedUrl, headers] = await validateAndPin(url, init?.headers)
+    const [pinnedUrl, headers] = await validateAndPin(url, init?.headers, dnsLookup)
 
     // Always intercept redirects so we can validate each hop's destination
     const callerWantsManual = init?.redirect === 'manual'
@@ -140,7 +148,7 @@ export const createSafeFetch = (fetchFn: typeof fetch) => {
 
       const redirectUrl = new URL(location, currentUrl).toString()
       currentUrl = redirectUrl
-      const [pinnedRedirect, redirectHeaders] = await validateAndPin(redirectUrl, init?.headers)
+      const [pinnedRedirect, redirectHeaders] = await validateAndPin(redirectUrl, init?.headers, dnsLookup)
 
       // 303 always becomes GET; 301/302 become GET for non-GET/HEAD (per spec)
       const methodOverride =

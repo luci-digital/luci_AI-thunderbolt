@@ -5,7 +5,7 @@
 import type { Auth } from '@/auth/elysia-plugin'
 import { createAuthMacro } from '@/auth/elysia-plugin'
 import { safeErrorHandler } from '@/middleware/error-handling'
-import { validateAndPin } from '@/utils/url-validation'
+import { validateAndPin, type DnsLookup } from '@/utils/url-validation'
 import { Elysia, type AnyElysia } from 'elysia'
 import { capStream } from './streaming'
 import { noopObservability, type ObservabilityRecorder } from './observability'
@@ -127,6 +127,7 @@ export const createUniversalProxyRoutes = (
   fetchFn: typeof fetch = globalThis.fetch,
   rateLimit?: AnyElysia,
   observability: ObservabilityRecorder = noopObservability,
+  dnsLookup?: DnsLookup,
 ) =>
   new Elysia({ prefix: '/proxy' })
     .onError(safeErrorHandler)
@@ -246,7 +247,7 @@ export const createUniversalProxyRoutes = (
             let pinnedUrl: string
             let pinnedExtraHeaders: Headers
             try {
-              ;[pinnedUrl, pinnedExtraHeaders] = await withDnsTimeout(validateAndPin(currentUrl))
+              ;[pinnedUrl, pinnedExtraHeaders] = await withDnsTimeout(validateAndPin(currentUrl, undefined, dnsLookup))
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err)
               if (hop === 0) {

@@ -8,10 +8,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun
 import { Elysia } from 'elysia'
 import { createUniversalProxyRoutes } from './routes'
 
-// Mock DNS + net — external Node APIs, acceptable per docs/testing.md "When You Must Mock"
+// Deterministic DNS resolver injected as a `createUniversalProxyRoutes` dep —
+// no `mock.module('node:dns')`, which would leak across files (see
+// docs/development/testing.md). 1.1.1.1 is a public IP (passes SSRF) and
+// stable for `pinnedUrl` assertions below.
 const mockDnsLookup = mock(() => Promise.resolve([{ address: '1.1.1.1', family: 4 }]))
-mock.module('node:dns', () => ({ promises: { lookup: mockDnsLookup } }))
-mock.module('node:net', () => ({ isIP: (s: string) => (/^\d+\.\d+\.\d+\.\d+$/.test(s) ? 4 : 0) }))
 
 /** Fake auth that always returns a resolved session. */
 const fakeAuth = {
@@ -53,7 +54,9 @@ describe('createUniversalProxyRoutes', () => {
   beforeAll(() => {
     consoleSpies = setupConsoleSpy()
     mockFetch = mock(() => Promise.resolve(makeOkResponse()))
-    app = new Elysia().use(createUniversalProxyRoutes(fakeAuth, mockFetch as unknown as typeof fetch))
+    app = new Elysia().use(
+      createUniversalProxyRoutes(fakeAuth, mockFetch as unknown as typeof fetch, undefined, undefined, mockDnsLookup),
+    )
   })
 
   afterAll(() => {
@@ -527,7 +530,13 @@ describe('createUniversalProxyRoutes', () => {
       })
       .as('scoped')
     const rateLimitedApp = new Elysia().use(
-      createUniversalProxyRoutes(fakeAuth, mockFetch as unknown as typeof fetch, rateLimitPlugin),
+      createUniversalProxyRoutes(
+        fakeAuth,
+        mockFetch as unknown as typeof fetch,
+        rateLimitPlugin,
+        undefined,
+        mockDnsLookup,
+      ),
     )
     const target = 'https://example.com/resource'
     const res = await rateLimitedApp.handle(proxyRequest(target, { method: 'GET' }))
@@ -560,7 +569,9 @@ describe('createUniversalProxyRoutes', () => {
 
   it('returns 401 when session is null and never opens an upstream connection', async () => {
     const noAuth = { api: { getSession: async () => null } } as never
-    const noAuthApp = new Elysia().use(createUniversalProxyRoutes(noAuth, mockFetch as unknown as typeof fetch))
+    const noAuthApp = new Elysia().use(
+      createUniversalProxyRoutes(noAuth, mockFetch as unknown as typeof fetch, undefined, undefined, mockDnsLookup),
+    )
     const target = 'https://example.com/resource'
     const res = await noAuthApp.handle(proxyRequest(target, { method: 'GET' }))
     expect(res.status).toBe(401)

@@ -2,10 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { afterEach, describe, expect, it, mock } from 'bun:test'
-
-const mockDnsLookup = mock(() => Promise.resolve([{ address: '1.2.3.4', family: 4 }]))
-mock.module('node:dns', () => ({ promises: { lookup: mockDnsLookup } }))
+import { afterEach, describe, expect, it } from 'bun:test'
 
 import {
   authHeaders,

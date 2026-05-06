@@ -112,7 +112,13 @@ export const createApp = async (deps?: AppDeps) => {
       .use(createSsoDesktopCallbackRoutes(settings))
       .use(createProToolsRoutes(auth, fetchFn, createProRateLimit(database, rateLimitSettings)))
       .use(
-        createUniversalProxyRoutes(auth, fetchFn, createProRateLimit(database, rateLimitSettings), proxyObservability),
+        createUniversalProxyRoutes(
+          auth,
+          fetchFn,
+          createProRateLimit(database, rateLimitSettings),
+          proxyObservability,
+          deps?.dnsLookup,
+        ),
       )
       .use(
         createUniversalProxyWsRoutes(auth, {
@@ -121,8 +127,12 @@ export const createApp = async (deps?: AppDeps) => {
           observability: proxyObservability,
         }),
       )
-      .use(createSearchRoutes(auth, createProRateLimit(database, rateLimitSettings)))
-      .use(createPreviewRoutes(auth, fetchFn, createProRateLimit(database, rateLimitSettings)))
+      .use(
+        createSearchRoutes(auth, createProRateLimit(database, rateLimitSettings), {
+          exaClient: deps?.searchExaClient,
+        }),
+      )
+      .use(createPreviewRoutes(auth, fetchFn, createProRateLimit(database, rateLimitSettings), deps?.dnsLookup))
       .use(createInferenceRoutes(auth, createInferenceRateLimit(database, rateLimitSettings)))
       .use(createConfigRoutes(settings))
       .use(createPostHogRoutes(fetchFn))

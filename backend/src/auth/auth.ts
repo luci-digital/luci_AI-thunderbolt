@@ -23,9 +23,28 @@ import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { bearer, emailOTP } from 'better-auth/plugins'
 import { sso } from '@better-auth/sso'
-import { isAutoApprovedDomain, sendWaitlistJoinedEmail, sendWaitlistNotReadyEmail } from '@/waitlist/utils'
+import {
+  isAutoApprovedDomain,
+  sendWaitlistJoinedEmail as defaultSendWaitlistJoinedEmail,
+  sendWaitlistNotReadyEmail as defaultSendWaitlistNotReadyEmail,
+} from '@/waitlist/utils'
 import { challengeTokenHeader, otpExpiryMs, otpExpirySeconds } from './otp-constants'
-import { buildVerifyUrl, getValidatedOrigin, parseTrustedOrigins, sendSignInEmail } from './utils'
+import {
+  buildVerifyUrl,
+  getValidatedOrigin,
+  parseTrustedOrigins,
+  sendSignInEmail as defaultSendSignInEmail,
+} from './utils'
+
+/** Email-sending callbacks invoked by Better Auth's emailOTP flow. Tests
+ *  inject capturing fakes via `createAuth(db, deps)` to avoid
+ *  `mock.module('@/auth/utils')` (which leaks across files — see
+ *  docs/development/testing.md). */
+export type AuthEmailDeps = {
+  sendSignInEmail?: typeof defaultSendSignInEmail
+  sendWaitlistJoinedEmail?: typeof defaultSendWaitlistJoinedEmail
+  sendWaitlistNotReadyEmail?: typeof defaultSendWaitlistNotReadyEmail
+}
 
 const OTP_SIGN_IN_PATH = '/sign-in/email-otp'
 
@@ -102,7 +121,10 @@ const buildSsoPlugins = () => {
   return []
 }
 
-export const createAuth = (database: typeof DbType) => {
+export const createAuth = (database: typeof DbType, emailDeps: AuthEmailDeps = {}) => {
+  const sendSignInEmail = emailDeps.sendSignInEmail ?? defaultSendSignInEmail
+  const sendWaitlistJoinedEmail = emailDeps.sendWaitlistJoinedEmail ?? defaultSendWaitlistJoinedEmail
+  const sendWaitlistNotReadyEmail = emailDeps.sendWaitlistNotReadyEmail ?? defaultSendWaitlistNotReadyEmail
   const settings = getSettings()
   const parsedOrigins = parseTrustedOrigins(process.env.TRUSTED_ORIGINS)
 

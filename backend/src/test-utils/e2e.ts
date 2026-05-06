@@ -3,35 +3,22 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { mock } from 'bun:test'
-import * as authUtils from '@/auth/utils'
+import type { SearchExaClient } from '@/api/search'
 import { challengeTokenHeader } from '@/auth/otp-constants'
 import { user, waitlist } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import type { db as DbType } from '@/db/client'
+import type { DnsLookup } from '@/utils/url-validation'
 import { createTestChallenge } from './otp-challenge'
 import { createTestDb } from './db'
 
-/** Module-scoped mock that captures the OTP each time the auth flow tries to
- *  send a sign-in email. Imported as a side-effect: any test file that imports
- *  from this module gets the mock applied (mock.module is global within the
- *  test runner). */
-const mockSendSignInEmail = mock((_args: { email: string; otp: string; verifyUrl: string }) => Promise.resolve())
-
-mock.module('@/auth/utils', () => ({
-  ...authUtils,
-  sendSignInEmail: mockSendSignInEmail,
-}))
-
-/** Reset the captured emails. Call before each createTestApp() so multiple
- *  sign-ins in the same test file don't read each other's OTPs. */
-const resetSignInMock = () => {
-  mockSendSignInEmail.mockClear()
-}
-
-/** Read the OTP captured from the most recent sendVerificationOTP call. */
-const captureLastOtp = (): string | undefined => {
-  const calls = mockSendSignInEmail.mock.calls as unknown as Array<[{ otp?: string }]>
-  return calls[calls.length - 1]?.[0]?.otp
+/** Deterministic DNS resolver for e2e tests. Resolves `private.test` to a
+ *  private address (so SSRF blocks fire) and everything else to a public IP.
+ *  Injected as a `createApp` dep — replaces the `mock.module('node:dns')`
+ *  pattern, which leaks across test files (see docs/development/testing.md). */
+export const e2eDnsLookup: DnsLookup = (host) => {
+  if (host === 'private.test') return Promise.resolve([{ address: '192.168.1.1', family: 4 }])
+  return Promise.resolve([{ address: '1.2.3.4', family: 4 }])
 }
 
 /** Result of starting an e2e test app — the running Elysia app, a real
@@ -64,6 +51,8 @@ export const createTestApp = async (
     fetchFn?: typeof fetch
     upstreamWsFactory?: (url: string, protocols?: string[]) => WebSocket
     proxyObservability?: import('@/proxy/observability').ObservabilityRecorder
+    dnsLookup?: DnsLookup
+    searchExaClient?: SearchExaClient | null
   } = {},
 ): Promise<TestAppHandle> => {
   const { createApp } = await import('@/index')
@@ -79,20 +68,26 @@ export const createTestApp = async (
     status: 'approved',
   })
 
-  const auth = createAuth(db)
+  // Per-test capture: each createTestApp run gets its own auth instance with a
+  // captured `sendSignInEmail`. This is dependency injection (not `mock.module`)
+  // so it never leaks to other test files (see docs/development/testing.md).
+  const captureSignInEmail = mock((_args: { email: string; otp: string; verifyUrl: string }) => Promise.resolve())
+  const auth = createAuth(db, { sendSignInEmail: captureSignInEmail })
   const app = await createApp({
     database: db,
     fetchFn: options.fetchFn ?? globalThis.fetch,
     auth,
     upstreamWsFactory: options.upstreamWsFactory,
     proxyObservability: options.proxyObservability,
+    dnsLookup: options.dnsLookup ?? e2eDnsLookup,
+    searchExaClient: options.searchExaClient,
   })
 
-  resetSignInMock()
   await auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } })
-  const otp = captureLastOtp()
+  const lastCall = captureSignInEmail.mock.calls.at(-1) as [{ otp?: string }] | undefined
+  const otp = lastCall?.[0]?.otp
   if (!otp) {
-    throw new Error('e2e: OTP not captured from sendVerificationOTP — check email mock setup')
+    throw new Error('e2e: OTP not captured from sendVerificationOTP — check email dep injection')
   }
 
   const challengeToken = await createTestChallenge(db, email)

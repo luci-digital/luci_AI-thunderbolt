@@ -53,8 +53,11 @@ const deriveFaviconUrl = (pageUrl: string): string | null => {
   }
 }
 
-/** A factory used by tests to inject a stubbed Exa client. */
-type SearchDeps = { exaClient?: { search: Exa['search'] } | null }
+/** A stubbed Exa client shape used by tests via `createApp({ searchExaClient })`.
+ *  Matches the structural surface we actually call. */
+export type SearchExaClient = { search: Exa['search'] }
+
+type SearchDeps = { exaClient?: SearchExaClient | null }
 
 export const createSearchRoutes = (auth: Auth, rateLimit?: AnyElysia, deps: SearchDeps = {}) =>
   new Elysia({ name: 'search-routes' })

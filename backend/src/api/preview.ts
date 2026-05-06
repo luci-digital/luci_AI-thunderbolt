@@ -5,7 +5,7 @@
 import type { Auth } from '@/auth/elysia-plugin'
 import { createAuthMacro } from '@/auth/elysia-plugin'
 import { safeErrorHandler } from '@/middleware/error-handling'
-import { createSafeFetch, validateSafeUrl } from '@/utils/url-validation'
+import { createSafeFetch, validateSafeUrl, type DnsLookup } from '@/utils/url-validation'
 import { Elysia, t, type AnyElysia } from 'elysia'
 
 export type PreviewDto = {
@@ -83,8 +83,13 @@ const extractMetadata = (html: string, baseUrl: string): PreviewDto => {
   }
 }
 
-export const createPreviewRoutes = (auth: Auth, fetchFn: typeof fetch = globalThis.fetch, rateLimit?: AnyElysia) => {
-  const safeFetch = createSafeFetch(fetchFn)
+export const createPreviewRoutes = (
+  auth: Auth,
+  fetchFn: typeof fetch = globalThis.fetch,
+  rateLimit?: AnyElysia,
+  dnsLookup?: DnsLookup,
+) => {
+  const safeFetch = createSafeFetch(fetchFn, dnsLookup)
 
   return new Elysia({ name: 'preview-routes' })
     .onError(safeErrorHandler)

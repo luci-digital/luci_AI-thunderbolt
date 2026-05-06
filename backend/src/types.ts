@@ -2,9 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+import type { SearchExaClient } from '@/api/search'
 import type { Auth } from '@/auth/auth'
 import type { db } from '@/db/client'
 import type { ObservabilityRecorder } from '@/proxy/observability'
+import type { DnsLookup } from '@/utils/url-validation'
 import type { WaitlistEmailService } from '@/waitlist/routes'
 
 /**
@@ -26,4 +28,12 @@ export type AppDeps = {
    *  `createApp` from the configured Pino logger + PostHog client. Tests pass
    *  a recorder that captures events in-memory. */
   proxyObservability?: ObservabilityRecorder
+  /** DNS resolver used by the universal proxy + preview routes for SSRF
+   *  validation. Tests inject a deterministic resolver to avoid `mock.module`
+   *  on `node:dns` (which leaks across files). Default: `dns.promises.lookup`. */
+  dnsLookup?: DnsLookup
+  /** Stubbed Exa client used by the /search route. Tests inject a fake to
+   *  avoid `mock.module('exa-js')`, which leaks across files. Default:
+   *  resolved from EXA_API_KEY at request time. */
+  searchExaClient?: SearchExaClient | null
 }
