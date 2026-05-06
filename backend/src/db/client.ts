@@ -7,7 +7,8 @@ import { drizzle as drizzlePglite } from 'drizzle-orm/pglite'
 import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator'
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
 import { migrate as migratePostgres } from 'drizzle-orm/postgres-js/migrator'
-import { resolve } from 'path'
+import { mkdirSync } from 'fs'
+import { dirname, resolve } from 'path'
 import postgres from 'postgres'
 import * as schema from './schema'
 
@@ -18,11 +19,17 @@ if (process.env.DATABASE_DRIVER === 'postgres' && !process.env.DATABASE_URL) {
 
 const isPglite = process.env.DATABASE_DRIVER !== 'postgres'
 
+if (isPglite && process.env.DATABASE_URL) {
+  mkdirSync(resolve(process.env.DATABASE_URL), { recursive: true })
+}
+
 const pgliteClient = isPglite ? new PGlite(process.env.DATABASE_URL) : null // undefined = in-memory
 
 const pgliteDb = pgliteClient ? drizzlePglite({ client: pgliteClient, schema }) : null
 
-const postgresDb = isPglite ? null : drizzlePostgres({ client: postgres(process.env.DATABASE_URL!), schema })
+const postgresDb = isPglite
+  ? null
+  : drizzlePostgres({ client: postgres(process.env.DATABASE_URL!, { onnotice: () => {} }), schema })
 
 export const db = pgliteDb ?? postgresDb!
 
