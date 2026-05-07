@@ -8,7 +8,7 @@ import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator'
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
 import { migrate as migratePostgres } from 'drizzle-orm/postgres-js/migrator'
 import { mkdirSync } from 'fs'
-import { dirname, resolve } from 'path'
+import { resolve } from 'path'
 import postgres from 'postgres'
 import * as schema from './schema'
 
