@@ -18,6 +18,13 @@
  */
 
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
+import {
+  PASSTHROUGH_PREFIX,
+  PASSTHROUGH_PREFIX_CASED,
+  PROXY_FRAMING_HEADERS,
+  TARGET_URL_HEADER,
+  WS_TARGET_PREFIX,
+} from '@shared/proxy-protocol'
 import { isTauri } from './platform'
 
 /** Headers the browser injects automatically and that should never be promoted
@@ -42,21 +49,19 @@ const skipHeaders = new Set([
   'upgrade-insecure-requests',
 ])
 
-const passthroughPrefix = 'x-proxy-passthrough-'
-
 const buildHostedRequest = (proxyUrl: string, input: RequestInfo | URL, init?: RequestInit): Request => {
   const sourceUrl = input instanceof Request ? input.url : input.toString()
   const sourceHeaders = new Headers(input instanceof Request ? input.headers : init?.headers)
 
   const proxyHeaders = new Headers()
-  proxyHeaders.set('X-Proxy-Target-Url', sourceUrl)
+  proxyHeaders.set(TARGET_URL_HEADER, sourceUrl)
 
   sourceHeaders.forEach((value, key) => {
     const lower = key.toLowerCase()
     if (skipHeaders.has(lower) || lower.startsWith('x-proxy-')) {
       return
     }
-    proxyHeaders.set(`X-Proxy-Passthrough-${key}`, value)
+    proxyHeaders.set(`${PASSTHROUGH_PREFIX_CASED}${key}`, value)
   })
 
   const method = init?.method ?? (input instanceof Request ? input.method : 'GET')
@@ -73,10 +78,7 @@ const buildHostedRequest = (proxyUrl: string, input: RequestInfo | URL, init?: R
   })
 }
 
-/** Headers the proxy adds for browser framing — never propagated to caller code. */
-const proxyFramingHeaders = new Set(['content-security-policy', 'content-disposition'])
-
-/** Walk the proxy response, strip `X-Proxy-Passthrough-` from response header names,
+/** Walk the proxy response, strip the passthrough prefix from response header names,
  *  and rebuild a Response that looks natural to caller code. Passthrough headers
  *  (the upstream's real values) win over the proxy's own framing headers. */
 const unwrapHostedResponse = (response: Response): Response => {
@@ -84,9 +86,9 @@ const unwrapHostedResponse = (response: Response): Response => {
   const fallback = new Headers()
   response.headers.forEach((value, key) => {
     const lower = key.toLowerCase()
-    if (lower.startsWith(passthroughPrefix)) {
-      passthrough.set(lower.slice(passthroughPrefix.length), value)
-    } else if (!proxyFramingHeaders.has(lower)) {
+    if (lower.startsWith(PASSTHROUGH_PREFIX)) {
+      passthrough.set(lower.slice(PASSTHROUGH_PREFIX.length), value)
+    } else if (!PROXY_FRAMING_HEADERS.has(lower)) {
       fallback.set(lower, value)
     }
   })
@@ -155,7 +157,7 @@ export const createProxyWebSocket =
       return new WebSocket(url, protocols)
     }
     const wsBase = options.cloudUrl.replace(/^http/, 'ws').replace(/\/$/, '')
-    const targetSubprotocol = `tbproxy.target.${b64UrlEncode(url)}`
+    const targetSubprotocol = `${WS_TARGET_PREFIX}${b64UrlEncode(url)}`
     return new WebSocket(`${wsBase}/proxy/ws`, [targetSubprotocol, ...(protocols ?? [])])
   }
 
@@ -163,7 +165,10 @@ const b64UrlEncode = (text: string): string => {
   if (typeof Buffer !== 'undefined') {
     return Buffer.from(text, 'utf-8').toString('base64url')
   }
-  // Browser fallback: btoa + url-safe substitutions.
-  const b64 = btoa(unescape(encodeURIComponent(text)))
-  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  const bytes = new TextEncoder().encode(text)
+  let binary = ''
+  for (const b of bytes) {
+    binary += String.fromCharCode(b)
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }

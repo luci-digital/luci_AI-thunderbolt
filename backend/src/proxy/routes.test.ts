@@ -55,7 +55,11 @@ describe('createUniversalProxyRoutes', () => {
     consoleSpies = setupConsoleSpy()
     mockFetch = mock(() => Promise.resolve(makeOkResponse()))
     app = new Elysia().use(
-      createUniversalProxyRoutes(fakeAuth, mockFetch as unknown as typeof fetch, undefined, undefined, mockDnsLookup),
+      createUniversalProxyRoutes({
+        auth: fakeAuth,
+        fetchFn: mockFetch as unknown as typeof fetch,
+        dnsLookup: mockDnsLookup,
+      }),
     )
   })
 
@@ -530,13 +534,12 @@ describe('createUniversalProxyRoutes', () => {
       })
       .as('scoped')
     const rateLimitedApp = new Elysia().use(
-      createUniversalProxyRoutes(
-        fakeAuth,
-        mockFetch as unknown as typeof fetch,
-        rateLimitPlugin,
-        undefined,
-        mockDnsLookup,
-      ),
+      createUniversalProxyRoutes({
+        auth: fakeAuth,
+        fetchFn: mockFetch as unknown as typeof fetch,
+        rateLimit: rateLimitPlugin,
+        dnsLookup: mockDnsLookup,
+      }),
     )
     const target = 'https://example.com/resource'
     const res = await rateLimitedApp.handle(proxyRequest(target, { method: 'GET' }))
@@ -570,7 +573,11 @@ describe('createUniversalProxyRoutes', () => {
   it('returns 401 when session is null and never opens an upstream connection', async () => {
     const noAuth = { api: { getSession: async () => null } } as never
     const noAuthApp = new Elysia().use(
-      createUniversalProxyRoutes(noAuth, mockFetch as unknown as typeof fetch, undefined, undefined, mockDnsLookup),
+      createUniversalProxyRoutes({
+        auth: noAuth,
+        fetchFn: mockFetch as unknown as typeof fetch,
+        dnsLookup: mockDnsLookup,
+      }),
     )
     const target = 'https://example.com/resource'
     const res = await noAuthApp.handle(proxyRequest(target, { method: 'GET' }))

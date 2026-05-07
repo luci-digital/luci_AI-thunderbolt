@@ -5,7 +5,16 @@
 import type { Auth } from '@/auth/elysia-plugin'
 import { createAuthMacro } from '@/auth/elysia-plugin'
 import { safeErrorHandler } from '@/middleware/error-handling'
-import { validateAndPin, type DnsLookup } from '@/utils/url-validation'
+import { ensureHttps, validateAndPin, type DnsLookup } from '@/utils/url-validation'
+import {
+  DROPPED_RESPONSE_HEADERS,
+  FINAL_URL_HEADER,
+  FOLLOW_REDIRECTS_HEADER,
+  PASSTHROUGH_PREFIX,
+  PASSTHROUGH_PREFIX_CASED,
+  REDIRECT_STATUSES,
+  TARGET_URL_HEADER,
+} from '@shared/proxy-protocol'
 import { Elysia, type AnyElysia } from 'elysia'
 import { capStream } from './streaming'
 import { noopObservability, type ObservabilityRecorder } from './observability'
@@ -19,30 +28,8 @@ const streamIdleMs = 30_000
 const allowedMethods = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'])
 const bodylessMethods = new Set(['GET', 'HEAD', 'OPTIONS'])
 
-/** The prefix carriers symmetric headers across the proxy boundary in both directions. */
-const PASSTHROUGH_PREFIX = 'x-proxy-passthrough-'
-
-/**
- * Wire-level / hop-by-hop response headers the proxy never propagates. The proxy
- * hands a fresh body to the client, so any framing/encoding/length headers from
- * upstream describe the wrong thing. Set-Cookie family is dropped to preserve
- * cookie isolation: the response's *origin* is Thunderbolt, not the upstream.
- */
-const droppedResponseHeaders = new Set([
-  'content-length',
-  'content-encoding',
-  'transfer-encoding',
-  'connection',
-  'keep-alive',
-  'proxy-authenticate',
-  'proxy-authorization',
-  'te',
-  'trailer',
-  'trailers',
-  'upgrade',
-  'set-cookie',
-  'set-cookie2',
-])
+const targetUrlHeaderLower = TARGET_URL_HEADER.toLowerCase()
+const followRedirectsHeaderLower = FOLLOW_REDIRECTS_HEADER.toLowerCase()
 
 /** Race a promise against a DNS timeout. Throws `Error('DNS_TIMEOUT')` on expiry.
  *  Note: dns.promises.lookup does not honor an AbortSignal in Node 22, so this only
@@ -57,30 +44,28 @@ const withDnsTimeout = <T>(p: Promise<T>): Promise<T> => {
   ]).finally(() => clearTimeout(timer))
 }
 
-/** Printable ASCII guard — rejects CRLF and control characters. */
 const isPrintableAscii = (value: string) => /^[\x20-\x7E]*$/.test(value)
+
+const textResponse = (status: number, body: string): Response =>
+  new Response(body, { status, headers: { 'Content-Type': 'text/plain' } })
 
 /** Auto-upgrade `http://` URLs to `https://` and reject all other non-https schemes. */
 const normaliseTargetUrl = (raw: string): URL | { error: string } => {
-  let parsed: URL
-  try {
-    parsed = new URL(raw)
-  } catch {
-    return { error: 'Invalid URL' }
+  const upgraded = ensureHttps(raw)
+  if (!upgraded) {
+    try {
+      new URL(raw)
+      return { error: 'Only http:// or https:// targets are allowed' }
+    } catch {
+      return { error: 'Invalid URL' }
+    }
   }
-  if (parsed.protocol === 'http:') {
-    parsed.protocol = 'https:'
-  }
-  if (parsed.protocol !== 'https:') {
-    return { error: 'Only http:// or https:// targets are allowed' }
-  }
-  return parsed
+  return new URL(upgraded)
 }
 
-/** Strip the X-Proxy-Passthrough- prefix off inbound headers and validate values.
- *  Returns the assembled outbound headers, or a string error message. Callers that
- *  receive `false` for `dropAuthorization` keep `Authorization` intact (same-origin
- *  redirects); callers that pass `true` strip it (cross-origin redirects). */
+/** Strip the passthrough prefix off inbound headers and validate values. Returns
+ *  the assembled outbound headers, or a string error message. Callers that pass
+ *  `dropAuthorization: true` strip Authorization (cross-origin redirects). */
 const buildOutboundHeaders = (
   inbound: Headers,
   { dropAuthorization }: { dropAuthorization: boolean } = { dropAuthorization: false },
@@ -108,39 +93,49 @@ const buildOutboundHeaders = (
 const buildResponseHeaders = (upstream: Headers, finalUrl: string): Headers => {
   const out = new Headers()
   upstream.forEach((value, key) => {
-    if (droppedResponseHeaders.has(key.toLowerCase())) return
-    out.set(`X-Proxy-Passthrough-${key}`, value)
+    if (DROPPED_RESPONSE_HEADERS.has(key.toLowerCase())) return
+    out.set(`${PASSTHROUGH_PREFIX_CASED}${key}`, value)
   })
 
-  // Proxy-set headers (NOT prefixed): these describe the proxy's own response framing
+  // Proxy-set headers (NOT prefixed): describe the proxy's own response framing
   // and security posture. Forced — override anything the upstream might have sent.
   out.set('Content-Security-Policy', 'sandbox')
   out.set('X-Content-Type-Options', 'nosniff')
   out.set('Content-Disposition', 'attachment')
   out.set('Cross-Origin-Resource-Policy', 'cross-origin')
-  out.set('X-Proxy-Final-Url', finalUrl)
+  out.set(FINAL_URL_HEADER, finalUrl)
   return out
 }
 
-export const createUniversalProxyRoutes = (
-  auth: Auth,
-  fetchFn: typeof fetch = globalThis.fetch,
-  rateLimit?: AnyElysia,
-  observability: ObservabilityRecorder = noopObservability,
-  dnsLookup?: DnsLookup,
-) =>
-  new Elysia({ prefix: '/proxy' })
+export type CreateUniversalProxyRoutesOptions = {
+  auth: Auth
+  fetchFn?: typeof fetch
+  rateLimit?: AnyElysia
+  observability?: ObservabilityRecorder
+  dnsLookup?: DnsLookup
+}
+
+export const createUniversalProxyRoutes = (options: CreateUniversalProxyRoutesOptions) => {
+  const { auth, rateLimit, dnsLookup } = options
+  const fetchFn = options.fetchFn ?? globalThis.fetch
+  const observability = options.observability ?? noopObservability
+
+  return new Elysia({ prefix: '/proxy' })
     .onError(safeErrorHandler)
     .use(createAuthMacro(auth))
     .guard({ auth: true }, (g) => {
       if (rateLimit) g.use(rateLimit)
 
       return g
-        .derive(() => ({ proxyStartedAt: performance.now(), proxyRequestId: crypto.randomUUID() }))
-        .onAfterResponse(({ request, set, user, proxyStartedAt, proxyRequestId }) => {
+        .derive(({ request }) => ({
+          proxyStartedAt: performance.now(),
+          proxyRequestId: crypto.randomUUID(),
+          proxyTargetUrl: request.headers.get(targetUrlHeaderLower) ?? '',
+        }))
+        .onAfterResponse(({ set, user, proxyStartedAt, proxyRequestId, proxyTargetUrl, request }) => {
           observability.proxyRequest({
             method: request.method.toUpperCase(),
-            target_url: request.headers.get('x-proxy-target-url') ?? '',
+            target_url: proxyTargetUrl,
             status: typeof set.status === 'number' ? set.status : 200,
             duration_ms: Math.round(performance.now() - proxyStartedAt),
             user_id: (user as { id?: string } | undefined)?.id ?? 'unknown',
@@ -154,29 +149,25 @@ export const createUniversalProxyRoutes = (
 
             if (!allowedMethods.has(method)) {
               ctx.set.status = 405
-              return new Response('Method not allowed', { headers: { 'Content-Type': 'text/plain' } })
+              return textResponse(405, 'Method not allowed')
             }
 
             // Read target URL from header (not path). Keeps user-supplied paths/queries
             // out of standard HTTP access logs which only record method + path.
-            const targetHeader = ctx.request.headers.get('x-proxy-target-url')
+            const targetHeader = ctx.proxyTargetUrl
             if (!targetHeader || targetHeader.trim() === '') {
               ctx.set.status = 400
-              return new Response('Missing X-Proxy-Target-Url header', {
-                headers: { 'Content-Type': 'text/plain' },
-              })
+              return textResponse(400, `Missing ${TARGET_URL_HEADER} header`)
             }
             if (!isPrintableAscii(targetHeader)) {
               ctx.set.status = 400
-              return new Response('Invalid X-Proxy-Target-Url header', {
-                headers: { 'Content-Type': 'text/plain' },
-              })
+              return textResponse(400, `Invalid ${TARGET_URL_HEADER} header`)
             }
 
             const normalised = normaliseTargetUrl(targetHeader)
             if ('error' in normalised) {
               ctx.set.status = 400
-              return new Response(normalised.error, { headers: { 'Content-Type': 'text/plain' } })
+              return textResponse(400, normalised.error)
             }
 
             // Strip userinfo before any further processing (matches validateAndPin).
@@ -194,25 +185,20 @@ export const createUniversalProxyRoutes = (
                 const cl = parseInt(contentLength, 10)
                 if (Number.isFinite(cl) && cl > maxBodyBytes) {
                   ctx.set.status = 413
-                  return new Response('Request body too large', {
-                    headers: { 'Content-Type': 'text/plain' },
-                  })
+                  return textResponse(413, 'Request body too large')
                 }
               }
             }
 
-            // Parse X-Proxy-Follow-Redirects (strict literal match).
-            const followRedirectsHeader = ctx.request.headers.get('x-proxy-follow-redirects')?.toLowerCase()
+            // Strict literal match — anything other than 'true'/'false' falls back to default.
+            const followRedirectsHeader = ctx.request.headers.get(followRedirectsHeaderLower)?.toLowerCase()
             const followOverride =
               followRedirectsHeader === 'true' ? true : followRedirectsHeader === 'false' ? false : null
 
-            // Build outbound headers from X-Proxy-Passthrough-* prefix.
             const initialHeadersResult = buildOutboundHeaders(ctx.request.headers)
             if ('error' in initialHeadersResult) {
               ctx.set.status = 400
-              return new Response(initialHeadersResult.error, {
-                headers: { 'Content-Type': 'text/plain' },
-              })
+              return textResponse(400, initialHeadersResult.error)
             }
             const initialPassthroughHeaders = initialHeadersResult
 
@@ -229,9 +215,7 @@ export const createUniversalProxyRoutes = (
               bufferedBody = await new Response(ctx.request.body as BodyInit).arrayBuffer()
               if (bufferedBody.byteLength > maxBodyBytes) {
                 ctx.set.status = 413
-                return new Response('Request body too large', {
-                  headers: { 'Content-Type': 'text/plain' },
-                })
+                return textResponse(413, 'Request body too large')
               }
             }
 
@@ -253,14 +237,10 @@ export const createUniversalProxyRoutes = (
                 const msg = err instanceof Error ? err.message : String(err)
                 if (hop === 0) {
                   ctx.set.status = 400
-                  return new Response(`Blocked: ${msg}`, {
-                    headers: { 'Content-Type': 'text/plain' },
-                  })
+                  return textResponse(400, `Blocked: ${msg}`)
                 }
                 ctx.set.status = 502
-                return new Response('Bad gateway (SSRF or DNS error on redirect)', {
-                  headers: { 'Content-Type': 'text/plain' },
-                })
+                return textResponse(502, 'Bad gateway (SSRF or DNS error on redirect)')
               }
 
               // Compose hop-specific headers: passthrough + Host (for SNI).
@@ -270,9 +250,7 @@ export const createUniversalProxyRoutes = (
                   : buildOutboundHeaders(ctx.request.headers, { dropAuthorization: dropAuthorizationOnHop })
               if ('error' in hopHeadersResult) {
                 ctx.set.status = 400
-                return new Response(hopHeadersResult.error, {
-                  headers: { 'Content-Type': 'text/plain' },
-                })
+                return textResponse(400, hopHeadersResult.error)
               }
               const hopHeaders = new Headers(hopHeadersResult)
               pinnedExtraHeaders.forEach((value, key) => {
@@ -305,13 +283,11 @@ export const createUniversalProxyRoutes = (
                 duplex: 'half',
               })
 
-              const isRedirect = [301, 302, 303, 307, 308].includes(response.status)
-              if (!isRedirect) {
+              if (!REDIRECT_STATUSES.has(response.status)) {
                 return buildProxyResponse(response, upstreamCtl, currentUrl)
               }
 
-              // Decide whether to follow this redirect.
-              const defaultFollow = currentMethod === 'GET' || currentMethod === 'HEAD'
+              const defaultFollow = bodylessMethods.has(currentMethod)
               const shouldFollow = followOverride !== null ? followOverride : defaultFollow
               if (!shouldFollow) {
                 return buildProxyResponse(response, upstreamCtl, currentUrl)
@@ -326,18 +302,14 @@ export const createUniversalProxyRoutes = (
               const nextRaw = new URL(location, currentUrl).toString()
               const nextNormalised = normaliseTargetUrl(nextRaw)
               if ('error' in nextNormalised) {
-                response.body?.cancel().catch(() => {})
                 upstreamCtl.abort()
                 ctx.set.status = 502
-                return new Response('Redirect target is not http(s)', {
-                  headers: { 'Content-Type': 'text/plain' },
-                })
+                return textResponse(502, 'Redirect target is not http(s)')
               }
               nextNormalised.username = ''
               nextNormalised.password = ''
               const nextUrl = nextNormalised.toString()
 
-              // Strip Authorization on the cross-origin hop to prevent credential leak.
               if (nextNormalised.origin !== initialOrigin) {
                 dropAuthorizationOnHop = true
               }
@@ -348,13 +320,12 @@ export const createUniversalProxyRoutes = (
               if (response.status === 303) {
                 nextMethod = 'GET'
                 nextBody = null
-              } else if ([301, 302].includes(response.status) && !['GET', 'HEAD'].includes(currentMethod)) {
+              } else if ((response.status === 301 || response.status === 302) && !bodylessMethods.has(currentMethod)) {
                 nextMethod = 'GET'
                 nextBody = null
               }
 
               // Release the current hop before opening the next.
-              response.body?.cancel().catch(() => {})
               upstreamCtl.abort()
 
               currentUrl = nextUrl
@@ -363,11 +334,12 @@ export const createUniversalProxyRoutes = (
             }
 
             ctx.set.status = 502
-            return new Response('Too many redirects', { headers: { 'Content-Type': 'text/plain' } })
+            return textResponse(502, 'Too many redirects')
           },
           { parse: 'none' },
         )
     })
+}
 
 const buildProxyResponse = (response: Response, upstreamCtl: AbortController, finalUrl: string): Response => {
   const headers = buildResponseHeaders(response.headers, finalUrl)

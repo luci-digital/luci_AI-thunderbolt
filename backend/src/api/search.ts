@@ -4,12 +4,12 @@
 
 import type { Auth } from '@/auth/elysia-plugin'
 import { createAuthMacro } from '@/auth/elysia-plugin'
-import { getSettings } from '@/config/settings'
-import { memoize } from '@/lib/memoize'
 import { safeErrorHandler } from '@/middleware/error-handling'
+import { getExaClient } from '@/pro/exa'
 import { ensureHttps } from '@/utils/url-validation'
+import { deriveFaviconUrl } from '@shared/url'
 import { Elysia, t, type AnyElysia } from 'elysia'
-import { Exa } from 'exa-js'
+import type { Exa } from 'exa-js'
 
 export type SearchResultDto = {
   title: string
@@ -20,23 +20,6 @@ export type SearchResultDto = {
 
 export type SearchResponseDto = {
   results: SearchResultDto[]
-}
-
-const getExaClient = memoize((): Exa | null => {
-  const settings = getSettings()
-  if (!settings.exaApiKey) return null
-  return new Exa(settings.exaApiKey)
-})
-
-/** Default favicon URL when the search provider doesn't supply one. */
-const deriveFaviconUrl = (pageUrl: string): string | null => {
-  try {
-    const { origin } = new URL(pageUrl)
-    if (!origin.startsWith('https://')) return null
-    return `${origin}/favicon.ico`
-  } catch {
-    return null
-  }
 }
 
 /** A stubbed Exa client shape used by tests via `createApp({ searchExaClient })`.

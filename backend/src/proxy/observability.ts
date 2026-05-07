@@ -62,27 +62,19 @@ export const createObservabilityRecorder = (deps: {
 }): ObservabilityRecorder => {
   const emitLog = (event: object) => {
     if (!deps.logger) return
-    try {
-      deps.logger.info(event)
-    } catch {
-      // logger failure is never fatal
-    }
+    deps.logger.info(event)
   }
 
   const emitPostHog = (distinctId: string, properties: Record<string, unknown>, error?: string) => {
     if (!deps.posthog) return
-    try {
-      deps.posthog.capture({
-        distinctId,
-        event: '$proxy_request',
-        properties: {
-          ...properties,
-          ...(error ? { error_type: 'upstream_error' } : {}),
-        },
-      })
-    } catch {
-      // PostHog failure is never fatal
-    }
+    deps.posthog.capture({
+      distinctId,
+      event: '$proxy_request',
+      properties: {
+        ...properties,
+        ...(error ? { error_type: 'upstream_error' } : {}),
+      },
+    })
   }
 
   return {

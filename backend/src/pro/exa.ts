@@ -9,14 +9,10 @@ import { Elysia, t } from 'elysia'
 import { Exa } from 'exa-js'
 import type { FetchContentResponse } from './types'
 
-const getExaClient = memoize(() => {
-  const settings = getSettings()
-  const apiKey = settings.exaApiKey
-
-  if (!apiKey) {
-    return null
-  }
-
+/** Memoized Exa client — exported so other modules (e.g. /search) reuse the same instance. */
+export const getExaClient = memoize((): Exa | null => {
+  const apiKey = getSettings().exaApiKey
+  if (!apiKey) return null
   return new Exa(apiKey)
 })
 

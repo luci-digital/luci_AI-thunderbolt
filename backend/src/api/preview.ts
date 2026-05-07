@@ -108,12 +108,16 @@ const extractMetadata = (html: string, baseUrl: string): PreviewDto => {
   }
 }
 
-export const createPreviewRoutes = (
-  auth: Auth,
-  fetchFn: typeof fetch = globalThis.fetch,
-  rateLimit?: AnyElysia,
-  dnsLookup?: DnsLookup,
-) => {
+export type CreatePreviewRoutesOptions = {
+  auth: Auth
+  fetchFn?: typeof fetch
+  rateLimit?: AnyElysia
+  dnsLookup?: DnsLookup
+}
+
+export const createPreviewRoutes = (options: CreatePreviewRoutesOptions) => {
+  const { auth, rateLimit, dnsLookup } = options
+  const fetchFn = options.fetchFn ?? globalThis.fetch
   const safeFetch = createSafeFetch(fetchFn, dnsLookup)
 
   return new Elysia({ name: 'preview-routes' })

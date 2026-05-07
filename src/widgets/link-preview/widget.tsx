@@ -48,7 +48,6 @@ const InstantLinkPreview = ({ sourceData }: { sourceData: SourceMetadata }) => {
 }
 
 export const LinkPreviewWidget = ({ url, source, sources, messageId, fetchPreviewFn }: LinkPreviewWidgetProps) => {
-  // Instant render path: resolve from source registry (O(1) index lookup)
   if (source && sources) {
     const sourceIndex = parseInt(source, 10)
     const sourceData = sources[sourceIndex - 1]
@@ -56,8 +55,6 @@ export const LinkPreviewWidget = ({ url, source, sources, messageId, fetchPrevie
       return <InstantLinkPreview sourceData={sourceData} />
     }
   }
-
-  // Fallback: existing fetch-based path
   return <FetchLinkPreview url={url} messageId={messageId} fetchPreviewFn={fetchPreviewFn} />
 }
 

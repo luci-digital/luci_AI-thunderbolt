@@ -72,6 +72,7 @@ export const createApp = async (deps?: AppDeps) => {
 
   const rateLimitSettings = { enabled: settings.rateLimitEnabled }
   const ipRateLimitSettings = { ...rateLimitSettings, trustedProxy: settings.trustedProxy }
+  const proRateLimit = createProRateLimit(database, rateLimitSettings)
 
   // Create auth plugin with the database instance (tests may inject their own auth)
   const { plugin: betterAuthPlugin, auth: createdAuth } = createBetterAuthPlugin(
@@ -110,29 +111,25 @@ export const createApp = async (deps?: AppDeps) => {
       .use(createMicrosoftAuthRoutes(auth, fetchFn))
       .use(createOidcConfigRoutes())
       .use(createSsoDesktopCallbackRoutes(settings))
-      .use(createProToolsRoutes(auth, fetchFn, createProRateLimit(database, rateLimitSettings)))
+      .use(createProToolsRoutes(auth, fetchFn, proRateLimit))
       .use(
-        createUniversalProxyRoutes(
+        createUniversalProxyRoutes({
           auth,
           fetchFn,
-          createProRateLimit(database, rateLimitSettings),
-          proxyObservability,
-          deps?.dnsLookup,
-        ),
+          rateLimit: proRateLimit,
+          observability: proxyObservability,
+          dnsLookup: deps?.dnsLookup,
+        }),
       )
       .use(
         createUniversalProxyWsRoutes(auth, {
-          rateLimit: createProRateLimit(database, rateLimitSettings),
+          rateLimit: proRateLimit,
           wsFactory: deps?.upstreamWsFactory,
           observability: proxyObservability,
         }),
       )
-      .use(
-        createSearchRoutes(auth, createProRateLimit(database, rateLimitSettings), {
-          exaClient: deps?.searchExaClient,
-        }),
-      )
-      .use(createPreviewRoutes(auth, fetchFn, createProRateLimit(database, rateLimitSettings), deps?.dnsLookup))
+      .use(createSearchRoutes(auth, proRateLimit, { exaClient: deps?.searchExaClient }))
+      .use(createPreviewRoutes({ auth, fetchFn, rateLimit: proRateLimit, dnsLookup: deps?.dnsLookup }))
       .use(createInferenceRoutes(auth, createInferenceRateLimit(database, rateLimitSettings)))
       .use(createConfigRoutes(settings))
       .use(createPostHogRoutes(fetchFn))
