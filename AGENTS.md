@@ -93,7 +93,9 @@ See [docs/architecture/powersync-account-devices.md](docs/architecture/powersync
 
 ## CORS and API headers
 
-When adding new custom headers to API requests (e.g. `X-Device-ID`, `X-Device-Name`), update `backend/src/config/settings.ts` so `corsAllowHeaders` includes them. Otherwise CORS preflight will fail and requests from the browser will be blocked.
+The main API (`backend/src/index.ts`) uses `allowedHeaders: true`, which echoes back whatever the browser requests in `Access-Control-Request-Headers`. This is required by the universal proxy at `/v1/proxy`, which forwards arbitrary upstream headers as `X-Proxy-Passthrough-*` (LLM SDKs add `x-api-key`, `x-stainless-*`, `openai-organization`, etc. — a static allowlist would break preflight whenever a new provider header appears). Adding a new custom header to a request anywhere in the main API requires no CORS-config change.
+
+The PostHog proxy route (`backend/src/posthog/routes.ts`) keeps the strict `corsAllowHeaders` allowlist since PostHog's header set is fixed. If you add a custom header to a PostHog request, update `corsAllowHeaders` in `backend/src/config/settings.ts`.
 
 ## Responsive Sizing
 

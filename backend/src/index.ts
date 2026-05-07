@@ -96,7 +96,12 @@ export const createApp = async (deps?: AppDeps) => {
           origin: getCorsOriginsList(settings),
           credentials: settings.corsAllowCredentials,
           methods: settings.corsAllowMethods,
-          allowedHeaders: settings.corsAllowHeaders,
+          // Echo back the client's Access-Control-Request-Headers. The universal
+          // proxy at /v1/proxy forwards arbitrary upstream headers as
+          // X-Proxy-Passthrough-* (provider SDKs add x-api-key, x-stainless-*,
+          // openai-organization, anthropic-beta, …). A static allowlist can't
+          // enumerate every upstream's header set without breaking preflight.
+          allowedHeaders: true,
           exposeHeaders: settings.corsExposeHeaders,
         }),
       )
