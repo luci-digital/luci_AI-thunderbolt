@@ -48,12 +48,39 @@ const getBadgeLabel = (sources: CitationSource[]) => {
   }
 }
 
+type BadgeButtonProps = {
+  sources: CitationSource[]
+  isOpen: boolean
+  onToggle: (element: HTMLElement) => void
+}
+
+const BadgeButton = ({ sources, isOpen, onToggle }: BadgeButtonProps) => {
+  const { displayName, additionalCount, ariaLabel } = getBadgeLabel(sources)
+  return (
+    <button
+      onClick={(e) => onToggle(e.currentTarget)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onToggle(e.currentTarget)
+        }
+      }}
+      className={badgeClass}
+      aria-label={ariaLabel}
+      aria-expanded={isOpen}
+      type="button"
+    >
+      <span className="truncate">{displayName}</span>
+      {additionalCount && <span className="shrink-0">{additionalCount}</span>}
+    </button>
+  )
+}
+
 // --- Context-managed variant (inline in streaming markdown) ---
 
 const ManagedBadge = memo(({ sources, citationId }: { sources: CitationSource[]; citationId: number }) => {
   const ctx = useCitationPopover()!
   const isOpen = ctx.popover?.citationId === citationId
-  const { displayName, additionalCount, ariaLabel } = getBadgeLabel(sources)
 
   const toggle = (element: HTMLElement) => {
     if (isOpen) {
@@ -63,24 +90,7 @@ const ManagedBadge = memo(({ sources, citationId }: { sources: CitationSource[];
     }
   }
 
-  return (
-    <button
-      onClick={(e) => toggle(e.currentTarget)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          toggle(e.currentTarget)
-        }
-      }}
-      className={badgeClass}
-      aria-label={ariaLabel}
-      aria-expanded={isOpen}
-      type="button"
-    >
-      <span className="truncate">{displayName}</span>
-      {additionalCount && <span className="shrink-0">{additionalCount}</span>}
-    </button>
-  )
+  return <BadgeButton sources={sources} isOpen={isOpen} onToggle={toggle} />
 })
 
 ManagedBadge.displayName = 'ManagedBadge'
@@ -90,26 +100,7 @@ ManagedBadge.displayName = 'ManagedBadge'
 const StandaloneBadge = memo(({ sources }: { sources: CitationSource[] }) => {
   const [isOpen, setIsOpen] = useState(false)
   const { isMobile } = useIsMobile()
-  const { displayName, additionalCount, ariaLabel } = getBadgeLabel(sources)
-
-  const badge = (
-    <button
-      onClick={() => setIsOpen(!isOpen)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          setIsOpen(!isOpen)
-        }
-      }}
-      className={badgeClass}
-      aria-label={ariaLabel}
-      aria-expanded={isOpen}
-      type="button"
-    >
-      <span className="truncate">{displayName}</span>
-      {additionalCount && <span className="shrink-0">{additionalCount}</span>}
-    </button>
-  )
+  const badge = <BadgeButton sources={sources} isOpen={isOpen} onToggle={() => setIsOpen(!isOpen)} />
 
   if (!isMobile) {
     return (

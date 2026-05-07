@@ -22,6 +22,35 @@ const userAgent =
 
 const emptyPreview: PreviewDto = { previewImageUrl: null, summary: null, title: null, siteName: null }
 
+/** Read up to `maxBytes` from a body stream, returning null if the cap is exceeded.
+ *  Avoids buffering an entire response when Content-Length is missing or lying. */
+const readCappedBody = async (body: ReadableStream<Uint8Array>, maxBytes: number): Promise<Uint8Array | null> => {
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {})
+        return null
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    out.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return out
+}
+
 const decodeHtmlEntities = (text: string): string =>
   text
     .replace(/&#x([0-9A-Fa-f]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
@@ -120,8 +149,9 @@ export const createPreviewRoutes = (
             const contentLength = response.headers.get('content-length')
             const parsed = contentLength ? parseInt(contentLength, 10) : null
             if (parsed !== null && Number.isFinite(parsed) && parsed > maxHtmlBytes) return emptyPreview
-            const buffer = await response.arrayBuffer()
-            if (buffer.byteLength > maxHtmlBytes) return emptyPreview
+            if (!response.body) return emptyPreview
+            const buffer = await readCappedBody(response.body, maxHtmlBytes)
+            if (!buffer) return emptyPreview
             const html = new TextDecoder().decode(buffer)
             return extractMetadata(html, targetUrl)
           } catch {

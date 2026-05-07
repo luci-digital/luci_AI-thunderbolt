@@ -95,11 +95,25 @@ const messageByteLength = (msg: string | ArrayBuffer | Uint8Array): number => {
 
 const sharedEncoder = new TextEncoder()
 
-type WsConnectArgs = { targetUrl: string; callerProtocols: string[] }
+export type WsConnectArgs = { targetUrl: string; callerProtocols: string[] }
+
+/** Per-connection state stashed on `ws.data`. Elysia's WS context type doesn't
+ *  surface these fields, so we keep one cast site here and consume via a typed
+ *  accessor below. */
+type WsExtras = {
+  user?: { id?: string }
+  headers?: Record<string, string | undefined> | Headers
+  connectArgs?: WsConnectArgs
+  relay?: RelayState
+  observe?: () => void
+  recordClose?: (code: number, reason?: string) => void
+}
+
+const wsExtras = (ws: { data: unknown }): WsExtras => ws.data as WsExtras
 
 /** Re-derive connect args from the inbound headers when the beforeHandle cache is missing. */
-const deriveConnectArgs = (ws: { data: unknown }): WsConnectArgs | null => {
-  const headers = (ws.data as { headers?: Record<string, string | undefined> | Headers }).headers
+const deriveConnectArgs = (extras: WsExtras): WsConnectArgs | null => {
+  const headers = extras.headers
   const subprotocolHeader =
     headers instanceof Headers ? headers.get('sec-websocket-protocol') : (headers?.['sec-websocket-protocol'] ?? null)
   const parsed = parseTargetSubprotocol(subprotocolHeader)
@@ -107,6 +121,14 @@ const deriveConnectArgs = (ws: { data: unknown }): WsConnectArgs | null => {
   const validated = validateWsTarget(parsed.target)
   if (!validated.ok) return null
   return { targetUrl: validated.target.toString(), callerProtocols: parsed.callerProtocols }
+}
+
+const safeWsClose = (ws: { close: (code?: number, reason?: string) => void }, code?: number, reason?: string) => {
+  try {
+    ws.close(code, reason)
+  } catch {
+    // already closed
+  }
 }
 
 /** Build the relay routes plugin. The websocket factory is injected so tests
@@ -152,18 +174,19 @@ export const createUniversalProxyWsRoutes = (
       },
       open(ws) {
         const startedAt = performance.now()
-        const userId = (ws.data as { user?: { id?: string } }).user?.id ?? 'unknown'
+        const extras = wsExtras(ws)
+        const userId = extras.user?.id ?? 'unknown'
         const requestId = crypto.randomUUID()
         let observedClose: { code: number; reason?: string } | null = null
 
-        const connectArgs = deriveConnectArgs(ws)
+        const connectArgs = deriveConnectArgs(extras)
         if (!connectArgs) {
           ws.close(wsCloseCodes.invalidSubprotocol, 'invalid')
           return
         }
         const targetUrl = connectArgs.targetUrl
 
-        const finalize = () => {
+        extras.observe = () => {
           if (!observedClose) return
           observability.proxyWsRelay({
             method: 'WS',
@@ -176,8 +199,7 @@ export const createUniversalProxyWsRoutes = (
           })
           observedClose = null
         }
-        ;(ws.data as { __observe?: () => void }).__observe = finalize
-        ;(ws.data as { __recordClose?: (code: number, reason?: string) => void }).__recordClose = (code, reason) => {
+        extras.recordClose = (code, reason) => {
           observedClose = { code, reason }
         }
 
@@ -188,7 +210,7 @@ export const createUniversalProxyWsRoutes = (
           pendingBytes: 0,
           closing: false,
         }
-        ;(ws.data as { relay?: RelayState }).relay = state
+        extras.relay = state
 
         let upstream: WebSocket
         try {
@@ -223,25 +245,17 @@ export const createUniversalProxyWsRoutes = (
         upstream.addEventListener('close', (event: CloseEvent) => {
           if (state.closing) return
           state.closing = true
-          try {
-            ws.close(event.code || 1000, event.reason || '')
-          } catch {
-            // already closed
-          }
+          safeWsClose(ws, event.code || 1000, event.reason || '')
         })
 
         upstream.addEventListener('error', () => {
           if (state.closing) return
           state.closing = true
-          try {
-            ws.close(wsCloseCodes.internalError, 'upstream error')
-          } catch {
-            // already closed
-          }
+          safeWsClose(ws, wsCloseCodes.internalError, 'upstream error')
         })
       },
       message(ws, message) {
-        const state = (ws.data as { relay?: RelayState }).relay
+        const state = wsExtras(ws).relay
         if (!state) return
         if (state.closing) return
 
@@ -261,40 +275,25 @@ export const createUniversalProxyWsRoutes = (
         const bytes = messageByteLength(payload)
         if (state.pending.length + 1 > QUEUE_MESSAGES || state.pendingBytes + bytes > QUEUE_BYTES) {
           state.closing = true
-          try {
-            state.upstream?.close(1000)
-          } catch {
-            // ignore
-          }
-          try {
-            ws.close(wsCloseCodes.queueOverflow, 'pre-connect queue overflow')
-          } catch {
-            // ignore
-          }
+          if (state.upstream) safeWsClose(state.upstream, 1000)
+          safeWsClose(ws, wsCloseCodes.queueOverflow, 'pre-connect queue overflow')
           return
         }
         state.pending.push(payload)
         state.pendingBytes += bytes
       },
       close(ws, code, reason) {
-        ;(ws.data as { __recordClose?: (code: number, reason?: string) => void }).__recordClose?.(code, reason)
-        ;(ws.data as { __observe?: () => void }).__observe?.()
-        const state = (ws.data as { relay?: RelayState }).relay
+        const extras = wsExtras(ws)
+        extras.recordClose?.(code, reason)
+        extras.observe?.()
+        const state = extras.relay
         if (!state) return
         state.closing = true
         if (state.upstream && state.upstream.readyState === state.upstream.OPEN) {
-          try {
-            state.upstream.close(code || 1000, reason || '')
-          } catch {
-            // ignore
-          }
+          safeWsClose(state.upstream, code || 1000, reason || '')
         } else if (state.upstream && state.upstream.readyState === state.upstream.CONNECTING) {
           // Native WebSocket has no .abort(); .close() during connect is well-defined.
-          try {
-            state.upstream.close()
-          } catch {
-            // ignore
-          }
+          safeWsClose(state.upstream)
         }
       },
     })
