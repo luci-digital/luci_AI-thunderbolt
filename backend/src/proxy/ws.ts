@@ -8,10 +8,10 @@ import { isPrivateAddress } from '@/utils/url-validation'
 import { Elysia, type AnyElysia } from 'elysia'
 import { noopObservability, type ObservabilityRecorder } from './observability'
 
-const TARGET_PREFIX = 'tbproxy.target.'
+const targetPrefix = 'tbproxy.target.'
 
-const QUEUE_BYTES = 256 * 1024
-const QUEUE_MESSAGES = 64
+const queueBytes = 256 * 1024
+const queueMessages = 64
 
 /** Close codes used by the relay. */
 export const wsCloseCodes = {
@@ -29,39 +29,64 @@ export type ParsedSubprotocol =
   | { ok: true; target: string; callerProtocols: string[] }
   | { ok: false; reason: 'missing' | 'duplicate' | 'malformed' }
 
+/** Decode a `tbproxy.target.<base64url>` entry to its raw target URL.
+ *  Returns null if the payload is empty or not valid base64url. */
+const decodeTargetEntry = (entry: string): string | null => {
+  const encoded = entry.slice(targetPrefix.length)
+  try {
+    const decoded = Buffer.from(encoded, 'base64url').toString('utf-8')
+    return decoded || null
+  } catch {
+    return null
+  }
+}
+
 /** Parse the inbound `Sec-WebSocket-Protocol` header looking for the target marker. */
 export const parseTargetSubprotocol = (header: string | null): ParsedSubprotocol => {
-  if (!header) return { ok: false, reason: 'missing' }
+  if (!header) {
+    return { ok: false, reason: 'missing' }
+  }
   const protocols = header
     .split(',')
     .map((p) => p.trim())
     .filter(Boolean)
-  const targets = protocols.filter((p) => p.startsWith(TARGET_PREFIX))
-  if (targets.length === 0) return { ok: false, reason: 'missing' }
-  if (targets.length > 1) return { ok: false, reason: 'duplicate' }
-  const encoded = targets[0].slice(TARGET_PREFIX.length)
-  let target: string
-  try {
-    target = Buffer.from(encoded, 'base64url').toString('utf-8')
-  } catch {
+  const targets = protocols.filter((p) => p.startsWith(targetPrefix))
+  if (targets.length === 0) {
+    return { ok: false, reason: 'missing' }
+  }
+  if (targets.length > 1) {
+    return { ok: false, reason: 'duplicate' }
+  }
+  const target = decodeTargetEntry(targets[0])
+  if (!target) {
     return { ok: false, reason: 'malformed' }
   }
-  if (!target) return { ok: false, reason: 'malformed' }
   // Strip *all* tbproxy.* entries — the namespace is reserved for proxy control.
   const callerProtocols = protocols.filter((p) => !p.startsWith('tbproxy.'))
-  return { ok: true, target, callerProtocols }
+  return {
+    ok: true,
+    target,
+    callerProtocols,
+  }
 }
 
 export type ValidatedTarget =
   | { ok: true; target: URL }
   | { ok: false; reason: 'invalid-url' | 'wss-only' | 'private-host' }
 
+/** Best-effort URL parse. Returns null instead of throwing. */
+const tryParseUrl = (raw: string): URL | null => {
+  try {
+    return new URL(raw)
+  } catch {
+    return null
+  }
+}
+
 /** Validate the decoded target URL. Hostname-only SSRF — DNS rebinding gap is documented. */
 export const validateWsTarget = (raw: string): ValidatedTarget => {
-  let target: URL
-  try {
-    target = new URL(raw)
-  } catch {
+  const target = tryParseUrl(raw)
+  if (!target) {
     return { ok: false, reason: 'invalid-url' }
   }
   if (target.protocol !== 'wss:') {
@@ -74,7 +99,10 @@ export const validateWsTarget = (raw: string): ValidatedTarget => {
   if (isPrivateAddress(hostname)) {
     return { ok: false, reason: 'private-host' }
   }
-  return { ok: true, target }
+  return {
+    ok: true,
+    target,
+  }
 }
 
 /** Per-connection state attached to ws.data. */
@@ -88,8 +116,12 @@ type RelayState = {
 }
 
 const messageByteLength = (msg: string | ArrayBuffer | Uint8Array): number => {
-  if (typeof msg === 'string') return Buffer.byteLength(msg, 'utf-8')
-  if (msg instanceof Uint8Array) return msg.byteLength
+  if (typeof msg === 'string') {
+    return Buffer.byteLength(msg, 'utf-8')
+  }
+  if (msg instanceof Uint8Array) {
+    return msg.byteLength
+  }
   return msg.byteLength
 }
 
@@ -117,9 +149,13 @@ const deriveConnectArgs = (extras: WsExtras): WsConnectArgs | null => {
   const subprotocolHeader =
     headers instanceof Headers ? headers.get('sec-websocket-protocol') : (headers?.['sec-websocket-protocol'] ?? null)
   const parsed = parseTargetSubprotocol(subprotocolHeader)
-  if (!parsed.ok) return null
+  if (!parsed.ok) {
+    return null
+  }
   const validated = validateWsTarget(parsed.target)
-  if (!validated.ok) return null
+  if (!validated.ok) {
+    return null
+  }
   return { targetUrl: validated.target.toString(), callerProtocols: parsed.callerProtocols }
 }
 
@@ -128,6 +164,21 @@ const safeWsClose = (ws: { close: (code?: number, reason?: string) => void }, co
     ws.close(code, reason)
   } catch {
     // already closed
+  }
+}
+
+/** Open the upstream WebSocket. Returns null and closes downstream on failure. */
+const openUpstream = (
+  wsFactory: (url: string, protocols?: string[]) => WebSocket,
+  targetUrl: string,
+  callerProtocols: string[],
+  downstream: { close: (code?: number, reason?: string) => void },
+): WebSocket | null => {
+  try {
+    return wsFactory(targetUrl, callerProtocols)
+  } catch (err) {
+    downstream.close(wsCloseCodes.internalError, err instanceof Error ? err.message : 'connect failed')
+    return null
   }
 }
 
@@ -147,7 +198,9 @@ export const createUniversalProxyWsRoutes = (
   const observability = options.observability ?? noopObservability
 
   return new Elysia({ name: 'universal-proxy-ws' }).use(createAuthMacro(auth)).guard({ auth: true }, (g) => {
-    if (options.rateLimit) g.use(options.rateLimit)
+    if (options.rateLimit) {
+      g.use(options.rateLimit)
+    }
 
     return g.ws('/proxy/ws', {
       beforeHandle({ request, set }) {
@@ -187,7 +240,9 @@ export const createUniversalProxyWsRoutes = (
         const targetUrl = connectArgs.targetUrl
 
         extras.observe = () => {
-          if (!observedClose) return
+          if (!observedClose) {
+            return
+          }
           observability.proxyWsRelay({
             method: 'WS',
             target_url: targetUrl,
@@ -212,11 +267,8 @@ export const createUniversalProxyWsRoutes = (
         }
         extras.relay = state
 
-        let upstream: WebSocket
-        try {
-          upstream = wsFactory(targetUrl, connectArgs.callerProtocols)
-        } catch (err) {
-          ws.close(wsCloseCodes.internalError, err instanceof Error ? err.message : 'connect failed')
+        const upstream = openUpstream(wsFactory, targetUrl, connectArgs.callerProtocols, ws)
+        if (!upstream) {
           return
         }
         state.upstream = upstream
@@ -243,21 +295,29 @@ export const createUniversalProxyWsRoutes = (
         })
 
         upstream.addEventListener('close', (event: CloseEvent) => {
-          if (state.closing) return
+          if (state.closing) {
+            return
+          }
           state.closing = true
           safeWsClose(ws, event.code || 1000, event.reason || '')
         })
 
         upstream.addEventListener('error', () => {
-          if (state.closing) return
+          if (state.closing) {
+            return
+          }
           state.closing = true
           safeWsClose(ws, wsCloseCodes.internalError, 'upstream error')
         })
       },
       message(ws, message) {
         const state = wsExtras(ws).relay
-        if (!state) return
-        if (state.closing) return
+        if (!state) {
+          return
+        }
+        if (state.closing) {
+          return
+        }
 
         // Coerce Elysia's parsed message back to bytes / string for forwarding.
         // Elysia auto-parses by content-type; we want the raw payload.
@@ -273,9 +333,11 @@ export const createUniversalProxyWsRoutes = (
 
         // Queue while upstream is still connecting.
         const bytes = messageByteLength(payload)
-        if (state.pending.length + 1 > QUEUE_MESSAGES || state.pendingBytes + bytes > QUEUE_BYTES) {
+        if (state.pending.length + 1 > queueMessages || state.pendingBytes + bytes > queueBytes) {
           state.closing = true
-          if (state.upstream) safeWsClose(state.upstream, 1000)
+          if (state.upstream) {
+            safeWsClose(state.upstream, 1000)
+          }
           safeWsClose(ws, wsCloseCodes.queueOverflow, 'pre-connect queue overflow')
           return
         }
@@ -287,7 +349,9 @@ export const createUniversalProxyWsRoutes = (
         extras.recordClose?.(code, reason)
         extras.observe?.()
         const state = extras.relay
-        if (!state) return
+        if (!state) {
+          return
+        }
         state.closing = true
         if (state.upstream && state.upstream.readyState === state.upstream.OPEN) {
           safeWsClose(state.upstream, code || 1000, reason || '')
