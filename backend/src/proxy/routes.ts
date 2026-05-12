@@ -318,10 +318,16 @@ export const createUniversalProxyRoutes = (options: CreateUniversalProxyRoutesOp
                 duplex: 'half',
               } as RequestInit & { decompress: boolean; duplex: 'half' })
 
-              /** Bytes uploaded to upstream — buffered bodies have a fixed size,
-               *  streamed bodies report what flowed through capStream. */
-              const bytesIn =
-                requestCap?.bytesRead() ?? currentBufferedBody?.byteLength ?? 0
+              /** Bytes uploaded to upstream. Buffered bodies have a fixed size known
+               *  up-front; for streamed bodies we expose a late-read getter so the
+               *  observability emission (which fires from the *response* stream's
+               *  onComplete) sees the final value after the upload has actually
+               *  drained, not the in-flight count at the moment response headers
+               *  were received. */
+              const bytesIn: () => number =
+                requestCap !== null
+                  ? requestCap.bytesRead
+                  : () => currentBufferedBody?.byteLength ?? 0
 
               if (!REDIRECT_STATUSES.has(response.status)) {
                 return buildProxyResponse(response, upstreamCtl, currentUrl, {
@@ -408,7 +414,9 @@ const buildProxyResponse = (
       errorType?: ProxyErrorType
     }) => void
     targetUrl: string
-    bytesIn: number
+    /** Late-read getter — invoked at emission time so streamed uploads have
+     *  drained before bytes_in is recorded. */
+    bytesIn: () => number
   },
 ): Response => {
   const headers = buildResponseHeaders(response.headers, finalUrl)
@@ -419,7 +427,7 @@ const buildProxyResponse = (
     observe.emit({
       response: out,
       targetUrl: observe.targetUrl,
-      bytesIn: observe.bytesIn,
+      bytesIn: observe.bytesIn(),
       bytesOut: 0,
       errorType: upstreamErrorType,
     })
@@ -442,7 +450,7 @@ const buildProxyResponse = (
       observe.emit({
         response: out,
         targetUrl: observe.targetUrl,
-        bytesIn: observe.bytesIn,
+        bytesIn: observe.bytesIn(),
         bytesOut,
         errorType,
       })
