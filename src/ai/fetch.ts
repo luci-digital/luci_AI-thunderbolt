@@ -103,7 +103,7 @@ export const getOrCreateProxyFetch = (cloudUrl: string): ProxyFetch => {
 }
 
 /** Test-only: clears the module-scoped proxy-fetch cache so tests start from a known state. */
-export const __resetProxyFetchCacheForTests = () => {
+export const resetProxyFetchCacheForTests = () => {
   cachedProxyFetch = null
 }
 

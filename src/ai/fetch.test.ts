@@ -3,11 +3,11 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { beforeEach, describe, expect, it } from 'bun:test'
-import { __resetProxyFetchCacheForTests, getOrCreateProxyFetch } from './fetch'
+import { resetProxyFetchCacheForTests, getOrCreateProxyFetch } from './fetch'
 
 describe('getOrCreateProxyFetch', () => {
   beforeEach(() => {
-    __resetProxyFetchCacheForTests()
+    resetProxyFetchCacheForTests()
   })
 
   it('returns the same fetch reference when called with the same cloudUrl', () => {
