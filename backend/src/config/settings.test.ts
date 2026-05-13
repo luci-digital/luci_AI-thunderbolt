@@ -52,20 +52,20 @@ describe('Config Settings', () => {
   })
 
   describe('CORS default security', () => {
-    const CORS_ENV_KEYS = ['CORS_ORIGINS'] as const
+    const corsEnvKeys = ['CORS_ORIGINS'] as const
 
     let savedEnv: Partial<Record<string, string | undefined>>
 
     beforeEach(() => {
       clearSettingsCache()
       savedEnv = {}
-      for (const key of CORS_ENV_KEYS) {
+      for (const key of corsEnvKeys) {
         savedEnv[key] = process.env[key]
       }
     })
 
     afterEach(() => {
-      for (const key of CORS_ENV_KEYS) {
+      for (const key of corsEnvKeys) {
         if (savedEnv[key] !== undefined) {
           process.env[key] = savedEnv[key]
         } else {
@@ -243,15 +243,43 @@ describe('Config Settings', () => {
     })
   })
 
+  describe('appUrl normalization', () => {
+    let savedAppUrl: string | undefined
+
+    beforeEach(() => {
+      clearSettingsCache()
+      savedAppUrl = process.env.APP_URL
+    })
+
+    afterEach(() => {
+      clearSettingsCache()
+      if (savedAppUrl === undefined) {
+        delete process.env.APP_URL
+      } else {
+        process.env.APP_URL = savedAppUrl
+      }
+    })
+
+    it('strips a trailing slash from APP_URL', () => {
+      process.env.APP_URL = 'https://app.thunderbolt.io/'
+      expect(getSettings().appUrl).toBe('https://app.thunderbolt.io')
+    })
+
+    it('leaves APP_URL untouched when there is no trailing slash', () => {
+      process.env.APP_URL = 'https://app.thunderbolt.io'
+      expect(getSettings().appUrl).toBe('https://app.thunderbolt.io')
+    })
+  })
+
   describe('Rate limiting settings', () => {
-    const RATE_LIMIT_ENV_KEYS = ['RATE_LIMIT_ENABLED', 'TRUSTED_PROXY'] as const
+    const rateLimitEnvKeys = ['RATE_LIMIT_ENABLED', 'TRUSTED_PROXY'] as const
 
     let savedEnv: Partial<Record<string, string>>
 
     beforeEach(() => {
       clearSettingsCache()
       savedEnv = {}
-      for (const key of RATE_LIMIT_ENV_KEYS) {
+      for (const key of rateLimitEnvKeys) {
         if (process.env[key] !== undefined) {
           savedEnv[key] = process.env[key]
         }
@@ -259,7 +287,7 @@ describe('Config Settings', () => {
     })
 
     afterEach(() => {
-      for (const key of RATE_LIMIT_ENV_KEYS) {
+      for (const key of rateLimitEnvKeys) {
         if (savedEnv[key] !== undefined) {
           process.env[key] = savedEnv[key]
         } else {
@@ -414,7 +442,7 @@ describe('Config Settings', () => {
   })
 
   describe('PowerSync settings', () => {
-    const POWERSYNC_ENV_KEYS = [
+    const powersyncEnvKeys = [
       'POWERSYNC_URL',
       'POWERSYNC_JWT_KID',
       'POWERSYNC_JWT_SECRET',
@@ -426,7 +454,7 @@ describe('Config Settings', () => {
     beforeEach(() => {
       clearSettingsCache()
       savedEnv = {}
-      for (const key of POWERSYNC_ENV_KEYS) {
+      for (const key of powersyncEnvKeys) {
         if (process.env[key] !== undefined) {
           savedEnv[key] = process.env[key]
         }
@@ -434,7 +462,7 @@ describe('Config Settings', () => {
     })
 
     afterEach(() => {
-      for (const key of POWERSYNC_ENV_KEYS) {
+      for (const key of powersyncEnvKeys) {
         if (savedEnv[key] !== undefined) {
           process.env[key] = savedEnv[key]
         } else {
@@ -445,7 +473,7 @@ describe('Config Settings', () => {
     })
 
     it('should use default values when PowerSync env vars are unset', () => {
-      for (const key of POWERSYNC_ENV_KEYS) {
+      for (const key of powersyncEnvKeys) {
         delete process.env[key]
       }
       const settings = getSettings()

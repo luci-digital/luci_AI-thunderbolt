@@ -29,12 +29,7 @@ import {
   sendWaitlistNotReadyEmail as defaultSendWaitlistNotReadyEmail,
 } from '@/waitlist/utils'
 import { challengeTokenHeader, otpExpiryMs, otpExpirySeconds } from './otp-constants'
-import {
-  buildVerifyUrl,
-  getValidatedOrigin,
-  parseTrustedOrigins,
-  sendSignInEmail as defaultSendSignInEmail,
-} from './utils'
+import { buildVerifyUrl, parseTrustedOrigins, sendSignInEmail as defaultSendSignInEmail } from './utils'
 
 /** Email-sending callbacks invoked by Better Auth's emailOTP flow. Tests
  *  inject capturing fakes via `createAuth(db, deps)` to avoid
@@ -46,7 +41,7 @@ export type AuthEmailDeps = {
   sendWaitlistNotReadyEmail?: typeof defaultSendWaitlistNotReadyEmail
 }
 
-const OTP_SIGN_IN_PATH = '/sign-in/email-otp'
+const otpSignInPath = '/sign-in/email-otp'
 
 /**
  * Create a Better Auth instance with the provided database
@@ -206,7 +201,7 @@ export const createAuth = (database: typeof DbType, emailDeps: AuthEmailDeps = {
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
-        if (ctx.path !== OTP_SIGN_IN_PATH) {
+        if (ctx.path !== otpSignInPath) {
           return
         }
 
@@ -238,7 +233,7 @@ export const createAuth = (database: typeof DbType, emailDeps: AuthEmailDeps = {
         // (after hook) or by expiry. This allows the 3-attempt limit to work correctly.
       }),
       after: createAuthMiddleware(async (ctx) => {
-        if (ctx.path !== OTP_SIGN_IN_PATH) {
+        if (ctx.path !== otpSignInPath) {
           return
         }
 
@@ -276,7 +271,7 @@ export const createAuth = (database: typeof DbType, emailDeps: AuthEmailDeps = {
         // code requests + session binding (challenge token) make brute-force infeasible.
         // TODO(THU-113): proof-of-work (ALTCHA) will add further distributed protection.
 
-        async sendVerificationOTP({ email, otp, type }, ctx) {
+        async sendVerificationOTP({ email, otp, type }) {
           // We only support sign-in (no password-based auth, so no email-verification or forget-password)
           if (type !== 'sign-in') {
             console.warn(`Unexpected OTP type requested: ${type}`)
@@ -315,7 +310,6 @@ export const createAuth = (database: typeof DbType, emailDeps: AuthEmailDeps = {
             }
           }
 
-          const origin = getValidatedOrigin(trustedOrigins, ctx?.request)
           // First-writer-wins: reuses existing challenge if /waitlist/join already
           // created one, or creates on-demand for Better Auth's native send-OTP endpoint.
           const challengeToken = await getOrCreateOtpChallenge(database, {
@@ -324,7 +318,7 @@ export const createAuth = (database: typeof DbType, emailDeps: AuthEmailDeps = {
             challengeToken: crypto.randomUUID(),
             expiresAt: new Date(Date.now() + otpExpiryMs),
           })
-          const verifyUrl = buildVerifyUrl(origin, normalizedEmail, otp, ctx?.request, challengeToken)
+          const verifyUrl = buildVerifyUrl(settings.appUrl, normalizedEmail, otp, challengeToken)
 
           await sendSignInEmail({ email: normalizedEmail, otp, verifyUrl })
         },

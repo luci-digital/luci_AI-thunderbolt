@@ -712,7 +712,9 @@ describe('createUniversalProxyRoutes', () => {
 
     /** Drain the response body so capStream.onComplete fires and observability emits. */
     const drain = async (res: Response) => {
-      if (res.body) await res.arrayBuffer()
+      if (res.body) {
+        await res.arrayBuffer()
+      }
     }
 
     it('records the real upstream status (not hardcoded 200) — bot MEDIUM fix', async () => {
@@ -785,7 +787,9 @@ describe('createUniversalProxyRoutes', () => {
           const reader = init.body.getReader()
           while (true) {
             const { done } = await reader.read()
-            if (done) break
+            if (done) {
+              break
+            }
           }
         }
         return new Response('ok', { status: 200 })

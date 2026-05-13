@@ -39,7 +39,9 @@ describe('Universal proxy /v1/proxy — e2e', () => {
   let handle: TestAppHandle
 
   afterEach(async () => {
-    if (handle) await handle.cleanup()
+    if (handle) {
+      await handle.cleanup()
+    }
   })
 
   // --- happy paths ---------------------------------------------------------
@@ -180,7 +182,9 @@ describe('Universal proxy /v1/proxy — e2e', () => {
     const received: string[] = []
     while (true) {
       const { value, done } = await reader.read()
-      if (done) break
+      if (done) {
+        break
+      }
       received.push(decoder.decode(value))
     }
     expect(received.join('')).toBe(events.join(''))
