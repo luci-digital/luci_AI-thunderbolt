@@ -20,7 +20,7 @@ import { useLocalStorage } from '@/hooks/use-local-storage'
 import { useSettings } from '@/hooks/use-settings'
 import { isTauri } from '@/lib/platform'
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
-import { createProxyFetch } from './proxy-fetch'
+import { computeEffectiveProxyEnabled, createProxyFetch } from './proxy-fetch'
 
 type ProxyFetchContextValue = {
   proxyFetch: typeof fetch
@@ -54,7 +54,10 @@ export const ProxyFetchProvider = ({ children, proxyFetch: override, isStandalon
 
   // Web always proxies (toggle is UI-disabled). Tauri respects the stored value.
   const onTauri = (isStandalone ?? isTauri)()
-  const effectiveProxyEnabled = onTauri ? proxyEnabledStr === 'true' : true
+  const effectiveProxyEnabled = computeEffectiveProxyEnabled(
+    () => onTauri,
+    () => proxyEnabledStr,
+  )
 
   const proxyFetch = useMemo(() => {
     if (override) {

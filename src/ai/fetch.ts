@@ -17,8 +17,7 @@ import { getDb } from '@/db/database'
 import { isSsoMode } from '@/lib/auth-mode'
 import { getAuthToken } from '@/lib/auth-token'
 import { fetch as baseFetch } from '@/lib/fetch'
-import { isTauri } from '@/lib/platform'
-import { createProxyFetch } from '@/lib/proxy-fetch'
+import { computeEffectiveProxyEnabled, createProxyFetch } from '@/lib/proxy-fetch'
 import { createToolset, getAvailableTools } from '@/lib/tools'
 import type { Model, SaveMessagesFunction, ThunderboltUIMessage } from '@/types'
 import type { SourceMetadata } from '@/types/source'
@@ -84,19 +83,6 @@ type ProxyFetch = ReturnType<typeof createProxyFetch>
 
 type CacheKey = { cloudUrl: string; proxyEnabled: boolean }
 let cachedProxyFetch: { key: CacheKey; proxyFetch: ProxyFetch } | null = null
-
-/** Derive effective proxy_enabled from localStorage + platform. Web ignores the
- *  toggle (browser CORS forces proxying); Tauri respects it (default off). */
-const computeEffectiveProxyEnabled = (
-  isStandalone: () => boolean = isTauri,
-  read: () => string | null = () =>
-    typeof localStorage === 'undefined' ? null : localStorage.getItem('proxy_enabled'),
-): boolean => {
-  if (!isStandalone()) {
-    return true
-  }
-  return read() === 'true'
-}
 
 /**
  * Returns the proxy fetch for the given `cloudUrl`, reusing the previous instance

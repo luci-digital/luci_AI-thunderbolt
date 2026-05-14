@@ -13,6 +13,7 @@ import { privacyPolicyUrl } from '@/lib/constants'
 import { extractCountryFromLocation } from '@/lib/country-utils'
 import { clearLocalData } from '@/lib/cleanup'
 import { isTauri } from '@/lib/platform'
+import { computeEffectiveProxyEnabled } from '@/lib/proxy-fetch'
 import { trackEvent, useTelemetryAvailable } from '@/lib/posthog'
 import type { CountryUnitsData } from '@/types'
 import { useHttpClient } from '@/contexts'
@@ -107,7 +108,10 @@ export default function PreferencesSettingsPage() {
   // proxy path — so the toggle is UI-disabled with an explanatory tooltip.
   const onTauri = isTauri()
   const [proxyEnabledStr, setProxyEnabledStr] = useLocalStorage('proxy_enabled', 'false')
-  const effectiveProxyEnabled = onTauri ? proxyEnabledStr === 'true' : true
+  const effectiveProxyEnabled = computeEffectiveProxyEnabled(
+    () => onTauri,
+    () => proxyEnabledStr,
+  )
 
   const httpClient = useHttpClient()
   const { syncEnabled, syncSetupOpen, setSyncSetupOpen, handleSyncToggle, handleSyncSetupComplete } =
