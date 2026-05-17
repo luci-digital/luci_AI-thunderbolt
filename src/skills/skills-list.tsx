@@ -42,7 +42,7 @@ const SourceFilterSelect = ({ value, onChange }: { value: SourceFilter; onChange
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="h-9 justify-between gap-1.5 border-border-strong bg-transparent px-3 text-sm font-normal text-foreground shadow-none hover:bg-bg-hover [&_svg:not([class*='size-'])]:size-3.5"
+          className="h-9 justify-between gap-1.5 border-border-strong bg-transparent dark:bg-transparent px-3 text-sm font-normal text-foreground shadow-none hover:bg-bg-hover dark:hover:bg-bg-hover [&_svg:not([class*='size-'])]:size-3.5"
         >
           <span className="grid grid-cols-1 grid-rows-1 text-left [&>*]:col-start-1 [&>*]:row-start-1">
             {options.map((opt) => (
@@ -62,13 +62,13 @@ const SourceFilterSelect = ({ value, onChange }: { value: SourceFilter; onChange
         side="bottom"
         align="end"
         sideOffset={8}
-        className="flex min-w-40 flex-col gap-0 rounded-xl border border-border-strong bg-card px-2 py-3"
+        className="flex min-w-40 flex-col gap-0 rounded-xl md:rounded-lg border border-border-strong bg-card px-2 py-3"
       >
         {options.map((opt) => (
           <DropdownMenuItem
             key={opt}
             onClick={() => onChange(opt)}
-            className={`h-9 gap-1.5 rounded-lg px-2 text-sm ${opt === value ? 'bg-accent' : ''}`}
+            className={`h-9 gap-1.5 rounded-lg md:rounded-md px-2 text-sm ${opt === value ? 'bg-accent' : ''}`}
           >
             <span className="flex-1">{sourceFilterLabel[opt]}</span>
           </DropdownMenuItem>
@@ -122,7 +122,7 @@ export const SkillsList = ({
               size="icon-sm"
               onClick={toggleSidebar}
               aria-label="Open menu"
-              className="size-8 -ml-1 rounded-md text-muted-foreground hover:text-foreground"
+              className="size-8 -ml-1 rounded-md md:rounded-lg text-muted-foreground hover:text-foreground"
             >
               <Menu className="size-[var(--icon-size-lg)]" strokeWidth={1.5} />
             </Button>
@@ -136,16 +136,19 @@ export const SkillsList = ({
         )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="icon-lg" aria-label="Add skill" className="size-8 rounded-md">
+            <Button variant="outline" size="icon-lg" aria-label="Add skill" className="size-8 rounded-md md:rounded-lg">
               <Plus />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
             sideOffset={8}
-            className="flex w-56 flex-col gap-0 rounded-xl border border-border-strong bg-card px-2 py-3"
+            className="flex w-56 flex-col gap-0 rounded-xl md:rounded-lg border border-border-strong bg-card px-2 py-3"
           >
-            <DropdownMenuItem asChild className="h-9 gap-1.5 px-2 text-sm [&_svg:not([class*='size-'])]:size-4">
+            <DropdownMenuItem
+              asChild
+              className="h-9 gap-1.5 md:rounded-md px-2 text-sm [&_svg:not([class*='size-'])]:size-4"
+            >
               <Link to="/marketplace?from=skills">
                 <Store />
                 Browse Marketplace
@@ -153,7 +156,7 @@ export const SkillsList = ({
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={onCreate}
-              className="h-9 gap-1.5 px-2 text-sm [&_svg:not([class*='size-'])]:size-4"
+              className="h-9 gap-1.5 md:rounded-md px-2 text-sm [&_svg:not([class*='size-'])]:size-4"
             >
               <SquarePen />
               Write skill
@@ -168,14 +171,14 @@ export const SkillsList = ({
           <Input
             type="text"
             placeholder="Search Skills"
-            className="h-9 rounded-lg border-border-strong bg-card pl-9 text-sm placeholder:text-muted-foreground"
+            className="h-9 rounded-lg border-border-strong pl-9 text-sm placeholder:text-muted-foreground"
           />
         </div>
         <SourceFilterSelect value={sourceFilter} onChange={setSourceFilter} />
       </div>
 
       {showWelcome && (
-        <div className="flex flex-col gap-2 rounded-xl border border-border-strong bg-card p-2.5">
+        <div className="flex flex-col gap-2 rounded-xl md:rounded-lg border border-border-strong bg-card p-2.5">
           <div className="flex items-start gap-2">
             <p className="flex-1 text-base leading-none text-foreground">Welcome! Try these starter skills.</p>
             <button
@@ -236,7 +239,7 @@ export const SkillsList = ({
                       aria-label={enabled ? `Disable ${skill.name}` : `Enable ${skill.name}`}
                     />
                   </span>
-                  <span className="truncate leading-none">{skill.name}</span>
+                  <span className="truncate">{skill.name}</span>
                 </span>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -251,7 +254,7 @@ export const SkillsList = ({
                   <DropdownMenuContent
                     align="end"
                     sideOffset={8}
-                    className="flex w-56 flex-col gap-0 rounded-xl border border-border-strong bg-card px-2 py-3"
+                    className="flex w-56 flex-col gap-0 rounded-xl md:rounded-lg border border-border-strong bg-card px-2 py-3"
                   >
                     {skill.source === 'local' && (
                       <DropdownMenuItem
@@ -259,13 +262,16 @@ export const SkillsList = ({
                           e.stopPropagation()
                           onEdit?.(skill.name)
                         }}
-                        className="h-9 gap-1.5 px-2 text-sm [&_svg:not([class*='size-'])]:size-4"
+                        className="h-9 gap-1.5 md:rounded-md px-2 text-sm [&_svg:not([class*='size-'])]:size-4"
                       >
                         <SquarePen />
                         Edit
                       </DropdownMenuItem>
                     )}
-                    <DropdownMenuItem asChild className="h-9 gap-1.5 px-2 text-sm [&_svg:not([class*='size-'])]:size-4">
+                    <DropdownMenuItem
+                      asChild
+                      className="h-9 gap-1.5 md:rounded-md px-2 text-sm [&_svg:not([class*='size-'])]:size-4"
+                    >
                       <Link to={`/?run=${encodeURIComponent(skill.name)}`}>
                         <Play />
                         Run in chat
@@ -276,7 +282,7 @@ export const SkillsList = ({
                         e.stopPropagation()
                         onDelete?.(skill.name)
                       }}
-                      className="h-9 gap-1.5 px-2 text-sm [&_svg:not([class*='size-'])]:size-4"
+                      className="h-9 gap-1.5 md:rounded-md px-2 text-sm [&_svg:not([class*='size-'])]:size-4"
                     >
                       <Trash2 />
                       {skill.source === 'local' ? 'Delete' : 'Uninstall'}

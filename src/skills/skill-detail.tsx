@@ -118,7 +118,7 @@ export const SkillDetail = ({
             {!isMobile && <h2 className="text-xl leading-tight text-foreground">{name}</h2>}
           </div>
           {isMobile && (
-            <h2 className="absolute left-1/2 -translate-x-1/2 text-xl leading-tight text-foreground pointer-events-none truncate max-w-[60%] text-center">
+            <h2 className="absolute left-1/2 -translate-x-1/2 text-xl text-foreground pointer-events-none truncate max-w-[60%] text-center">
               {name}
             </h2>
           )}

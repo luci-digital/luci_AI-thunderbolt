@@ -71,7 +71,7 @@ const InstallFilterSelect = ({ value, onChange }: { value: InstallFilter; onChan
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="h-9 justify-between gap-1.5 border-border-strong bg-transparent px-3 text-sm font-normal text-foreground shadow-none hover:bg-bg-hover [&_svg:not([class*='size-'])]:size-3.5"
+          className="h-9 justify-between gap-1.5 border-border-strong bg-transparent dark:bg-transparent px-3 text-sm font-normal text-foreground shadow-none hover:bg-bg-hover dark:hover:bg-bg-hover [&_svg:not([class*='size-'])]:size-3.5"
         >
           <span className="grid grid-cols-1 grid-rows-1 text-left [&>*]:col-start-1 [&>*]:row-start-1">
             {options.map((opt) => (
@@ -175,7 +175,7 @@ const SkillTile = ({
     )}
   >
     <div className="flex items-center justify-between gap-3">
-      <h3 className="truncate text-lg leading-none text-foreground">{card.name}</h3>
+      <h3 className="truncate text-lg text-foreground">{card.name}</h3>
       <InstallPill installed={installed} onToggle={onToggleInstall} />
     </div>
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
@@ -215,7 +215,7 @@ const SkillPreview = ({
         >
           <ChevronLeft className="size-5" />
         </Button>
-        <h2 className="min-w-0 flex-1 truncate px-10 text-center text-xl leading-tight text-foreground md:px-0 md:pr-10 md:text-left">
+        <h2 className="min-w-0 flex-1 truncate px-10 text-center text-xl text-foreground md:px-0 md:pr-10 md:text-left">
           {card.name}
         </h2>
         <Button
@@ -464,7 +464,7 @@ export const Marketplace = () => {
               <Input
                 type="text"
                 placeholder="Search Skills"
-                className="h-9 rounded-lg border-border-strong bg-card pl-9 text-sm placeholder:text-muted-foreground"
+                className="h-9 rounded-lg border-border-strong pl-9 text-sm placeholder:text-muted-foreground"
               />
             </div>
             <InstallFilterSelect value={filter} onChange={setFilter} />

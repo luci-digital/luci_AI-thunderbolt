@@ -4,7 +4,7 @@
 
 import { NavLink } from '@/components/ui/nav-link'
 import { SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar'
-import { CheckSquare, Folder, MessageSquarePlus, Settings } from 'lucide-react'
+import { CheckSquare, MessageSquarePlus, Settings } from 'lucide-react'
 
 type NavigationMenuProps = {
   isMobile: boolean
@@ -32,12 +32,6 @@ export const NavigationMenu = ({
         >
           <MessageSquarePlus className="size-[var(--icon-size-default)]" />
           <span>New Chat</span>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-      <SidebarMenuItem>
-        <SidebarMenuButton tooltip="Projects" className="cursor-pointer">
-          <Folder className="size-[var(--icon-size-default)]" />
-          <span>Projects</span>
         </SidebarMenuButton>
       </SidebarMenuItem>
       {showTasks && (
