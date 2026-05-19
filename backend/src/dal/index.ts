@@ -23,7 +23,10 @@ export { getActiveSessionByToken, linkSessionToDevice, revokeDeviceSessions } fr
 export { getWaitlistByEmail, createWaitlistEntry, approveWaitlistEntry } from './waitlist'
 
 // PowerSync
-export { applyOperation } from './powersync'
+export { applyOperation, applyOperations } from './powersync'
+
+// Workspaces
+export { isActiveWorkspaceMember } from './workspaces'
 
 // OTP Challenge (session binding)
 export {

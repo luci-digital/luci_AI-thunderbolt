@@ -5,7 +5,15 @@
 import type { Settings } from '@/config/settings'
 import { createBetterAuthPlugin } from '@/auth/elysia-plugin'
 import { session as sessionTable, user as userTable } from '@/db/auth-schema'
-import { devicesTable, mcpServersTable, modelsTable, promptsTable, settingsTable } from '@/db/schema'
+import {
+  chatThreadsTable,
+  devicesTable,
+  mcpServersTable,
+  modelsTable,
+  settingsTable,
+  workspaceMembersTable,
+  workspacesTable,
+} from '@/db/schema'
 import { createTestDb } from '@/test-utils/db'
 import { createHmac } from 'crypto'
 import { eq } from 'drizzle-orm'
@@ -89,6 +97,28 @@ describe('PowerSync API', () => {
     Authorization: `Bearer ${signToken(bearer)}`,
     'X-Device-ID': deviceId,
   })
+
+  /** Insert a workspace plus an active membership row for the user. */
+  const insertWorkspaceWithMember = async (
+    workspaceId: string,
+    userId: string,
+    { role = 'owner', removed = false }: { role?: 'owner' | 'admin' | 'member'; removed?: boolean } = {},
+  ) => {
+    const now = new Date()
+    await db.insert(workspacesTable).values({
+      id: workspaceId,
+      name: `Workspace ${workspaceId}`,
+      createdBy: userId,
+      isPersonal: false,
+    })
+    await db.insert(workspaceMembersTable).values({
+      workspaceId,
+      userId,
+      role,
+      joinedAt: now,
+      removedAt: removed ? now : null,
+    })
+  }
 
   /** Insert a trusted device so it passes validateDeviceForSync. */
   const insertTrustedDevice = async (deviceId: string, userId: string) => {
@@ -1373,8 +1403,9 @@ describe('PowerSync API', () => {
       expect(rows[0]?.value).toBe('updated')
     })
 
-    it('converts deleted_at ISO string to Date in PATCH (prompts soft delete)', async () => {
+    it('converts deleted_at ISO string to Date in PATCH (chat thread soft delete)', async () => {
       const userId = 'user-patch-deleted-at'
+      const workspaceId = 'ws-patch-deleted-at'
       const now = new Date()
       const expiresAt = new Date(now.getTime() + 3600 * 1000)
 
@@ -1395,11 +1426,12 @@ describe('PowerSync API', () => {
         userId,
       })
       await insertTrustedDevice('test-device-id', userId)
-      await db.insert(promptsTable).values({
-        id: 'prompt-to-soft-delete',
-        title: 'My Prompt',
-        prompt: 'Hello',
-        modelId: 'gpt-4',
+      await insertWorkspaceWithMember(workspaceId, userId)
+      await db.insert(chatThreadsTable).values({
+        id: 'thread-to-soft-delete',
+        title: 'My Thread',
+        modeId: 'default',
+        workspaceId,
         userId,
       })
 
@@ -1412,9 +1444,9 @@ describe('PowerSync API', () => {
             operations: [
               {
                 op: 'PATCH' as const,
-                type: 'prompts',
-                id: 'prompt-to-soft-delete',
-                data: { deleted_at: deletedAtIso, model_id: null, prompt: null, title: null },
+                type: 'chat_threads',
+                id: 'thread-to-soft-delete',
+                data: { deleted_at: deletedAtIso, mode_id: null, title: null },
               },
             ],
           }),
@@ -1422,11 +1454,10 @@ describe('PowerSync API', () => {
       )
       expect(response.status).toBe(200)
 
-      const rows = await db.select().from(promptsTable).where(eq(promptsTable.id, 'prompt-to-soft-delete'))
+      const rows = await db.select().from(chatThreadsTable).where(eq(chatThreadsTable.id, 'thread-to-soft-delete'))
       expect(rows).toHaveLength(1)
       expect(rows[0]?.deletedAt).toEqual(new Date(deletedAtIso))
-      expect(rows[0]?.modelId).toBeNull()
-      expect(rows[0]?.prompt).toBeNull()
+      expect(rows[0]?.modeId).toBeNull()
       expect(rows[0]?.title).toBeNull()
     })
 
@@ -1580,7 +1611,7 @@ describe('PowerSync API', () => {
       expect(rows[0]?.userId).toBe(userA)
     })
 
-    it('blocks DELETE on devices table (must use dedicated revoke API)', async () => {
+    it('silently drops DELETE on devices table (devices is not writable; revoke goes through REST)', async () => {
       const userId = 'user-delete-device-blocked'
       const deviceId = 'device-to-delete-blocked'
       const now = new Date()
@@ -1623,11 +1654,10 @@ describe('PowerSync API', () => {
           }),
         }),
       )
-      expect(response.status).toBe(400)
-      const body = (await response.json()) as { code: string }
-      expect(body.code).toBe('UPLOAD_OPERATION_FAILED')
+      // Per Option C: devices is not in writableTables, so the op is silently skipped — the
+      // batch reports success, but the device row is untouched.
+      expect(response.status).toBe(200)
 
-      // Device must still exist
       const devices = await db.select().from(devicesTable).where(eq(devicesTable.id, deviceId))
       expect(devices).toHaveLength(1)
       expect(devices[0]?.trusted).toBe(true)
@@ -1850,7 +1880,7 @@ describe('PowerSync API', () => {
       expect(themeRows.find((r) => r.userId === userB)?.value).toBe('system')
     })
 
-    it('returns 400 when an operation fails (invalid table, empty payload, etc.)', async () => {
+    it('returns 400 with table/id/op details when an operation fails', async () => {
       const userId = 'user-upload-fail'
       const now = new Date()
       const expiresAt = new Date(now.getTime() + 3600 * 1000)
@@ -1874,19 +1904,14 @@ describe('PowerSync API', () => {
       })
       await insertTrustedDevice('test-device-id', userId)
 
+      // DELETE on a non-existent settings row returns 0 affected → applyOperation returns false
+      // → API surfaces 400 with the failing op's identity.
       const response = await app.handle(
         new Request('http://localhost/powersync/upload', {
           method: 'PUT',
           headers: uploadHeaders('bearer-upload-fail'),
           body: JSON.stringify({
-            operations: [
-              {
-                op: 'PUT' as const,
-                type: 'nonexistent_table',
-                id: 'some_id',
-                data: { value: 'x' },
-              },
-            ],
+            operations: [{ op: 'DELETE' as const, type: 'settings', id: 'no_such_key' }],
           }),
         }),
       )
@@ -1894,9 +1919,342 @@ describe('PowerSync API', () => {
       const data = (await response.json()) as { error: string; code: string; table: string; id: string; op: string }
       expect(data.error).toBe('Upload operation failed')
       expect(data.code).toBe('UPLOAD_OPERATION_FAILED')
-      expect(data.table).toBe('nonexistent_table')
-      expect(data.id).toBe('some_id')
-      expect(data.op).toBe('PUT')
+      expect(data.table).toBe('settings')
+      expect(data.id).toBe('no_such_key')
+      expect(data.op).toBe('DELETE')
+    })
+
+    // ---------------------------------------------------------------------
+    // Write-path policy (Decision 14 of the workspaces spec).
+    // Only chat_threads, chat_messages, tasks, and settings are writable via PowerSync.
+    // Workspace-scoped writes additionally require an active workspace_members row.
+    // ---------------------------------------------------------------------
+
+    const setupAuthedUser = async (label: string) => {
+      const userId = `user-${label}`
+      const now = new Date()
+      const expiresAt = new Date(now.getTime() + 3600 * 1000)
+      await db.insert(userTable).values({
+        id: userId,
+        name: label,
+        email: `${label}@example.com`,
+        emailVerified: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      await db.insert(sessionTable).values({
+        id: `session-${label}`,
+        expiresAt,
+        token: `bearer-${label}`,
+        createdAt: now,
+        updatedAt: now,
+        userId,
+      })
+      await insertTrustedDevice('test-device-id', userId)
+      return { userId, token: `bearer-${label}` }
+    }
+
+    it('PUT to chat_threads succeeds for an active workspace member', async () => {
+      const { userId, token } = await setupAuthedUser('ws-write-ok')
+      const workspaceId = 'ws-write-ok'
+      await insertWorkspaceWithMember(workspaceId, userId)
+
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: uploadHeaders(token),
+          body: JSON.stringify({
+            operations: [
+              {
+                op: 'PUT' as const,
+                type: 'chat_threads',
+                id: 'thread-ok',
+                data: { workspace_id: workspaceId, title: 'Hello' },
+              },
+            ],
+          }),
+        }),
+      )
+      expect(response.status).toBe(200)
+      const rows = await db.select().from(chatThreadsTable).where(eq(chatThreadsTable.id, 'thread-ok'))
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.workspaceId).toBe(workspaceId)
+      expect(rows[0]?.userId).toBe(userId)
+    })
+
+    it('rejects PUT to chat_threads when the user is not a member of the workspace', async () => {
+      const { userId, token } = await setupAuthedUser('ws-not-member')
+      const otherUserId = 'user-other-owner'
+      const workspaceId = 'ws-not-member'
+
+      await db.insert(userTable).values({
+        id: otherUserId,
+        name: 'Other',
+        email: 'other@example.com',
+        emailVerified: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      await insertWorkspaceWithMember(workspaceId, otherUserId) // not the authenticated user
+
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: uploadHeaders(token),
+          body: JSON.stringify({
+            operations: [
+              {
+                op: 'PUT' as const,
+                type: 'chat_threads',
+                id: 'thread-denied',
+                data: { workspace_id: workspaceId, title: 'forbidden' },
+              },
+            ],
+          }),
+        }),
+      )
+      expect(response.status).toBe(400)
+      const body = (await response.json()) as { code: string; table: string }
+      expect(body.code).toBe('UPLOAD_OPERATION_FAILED')
+      expect(body.table).toBe('chat_threads')
+      const rows = await db.select().from(chatThreadsTable).where(eq(chatThreadsTable.id, 'thread-denied'))
+      expect(rows).toHaveLength(0)
+      // The authenticated user should not be retained even via attribution.
+      expect(userId).not.toBe(otherUserId)
+    })
+
+    it('rejects PUT to chat_threads when the user has been removed from the workspace', async () => {
+      const { token, userId } = await setupAuthedUser('ws-removed')
+      const workspaceId = 'ws-removed'
+      await insertWorkspaceWithMember(workspaceId, userId, { removed: true })
+
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: uploadHeaders(token),
+          body: JSON.stringify({
+            operations: [
+              {
+                op: 'PUT' as const,
+                type: 'chat_threads',
+                id: 'thread-after-removal',
+                data: { workspace_id: workspaceId, title: 'late' },
+              },
+            ],
+          }),
+        }),
+      )
+      expect(response.status).toBe(400)
+      const body = (await response.json()) as { code: string }
+      expect(body.code).toBe('UPLOAD_OPERATION_FAILED')
+    })
+
+    it('rejects PUT to chat_threads when workspace_id is missing from op.data', async () => {
+      const { token, userId } = await setupAuthedUser('ws-no-id')
+      await insertWorkspaceWithMember('ws-no-id', userId)
+
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: uploadHeaders(token),
+          body: JSON.stringify({
+            operations: [
+              {
+                op: 'PUT' as const,
+                type: 'chat_threads',
+                id: 'thread-no-ws',
+                data: { title: 'missing workspace_id' },
+              },
+            ],
+          }),
+        }),
+      )
+      expect(response.status).toBe(400)
+      const body = (await response.json()) as { code: string }
+      expect(body.code).toBe('UPLOAD_OPERATION_FAILED')
+    })
+
+    it('PUT to settings succeeds without workspace_id (settings is account-level)', async () => {
+      const { userId, token } = await setupAuthedUser('settings-no-ws')
+
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: uploadHeaders(token),
+          body: JSON.stringify({
+            operations: [
+              {
+                op: 'PUT' as const,
+                type: 'settings',
+                id: 'preferred_name',
+                data: { value: 'Settings User' },
+              },
+            ],
+          }),
+        }),
+      )
+      expect(response.status).toBe(200)
+      const rows = await db.select().from(settingsTable).where(eq(settingsTable.key, 'preferred_name'))
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.userId).toBe(userId)
+      expect(rows[0]?.value).toBe('Settings User')
+    })
+
+    // Tables that are synced but not writable via PowerSync — the only legitimate write path is
+    // REST. Per Option C of the upload-handler design, non-writable ops are silently skipped
+    // (logged server-side) instead of failing the batch — a stale/buggy client can't poison
+    // sync for legitimate ops in the same batch.
+    const nonWritableTables: { table: string; data: Record<string, unknown> }[] = [
+      { table: 'models', data: { workspace_id: 'any', name: 'GPT', provider: 'openai' } },
+      { table: 'modes', data: { workspace_id: 'any', name: 'chat', label: 'Chat' } },
+      { table: 'prompts', data: { workspace_id: 'any', title: 'p', prompt: 'p' } },
+      { table: 'mcp_servers', data: { workspace_id: 'any', name: 's', url: 'https://x' } },
+      { table: 'triggers', data: { workspace_id: 'any', trigger_type: 'time' } },
+      { table: 'model_profiles', data: { workspace_id: 'any', temperature: 0.5 } },
+      { table: 'devices', data: { name: 'spoof' } },
+      { table: 'workspaces', data: { name: 'sneaky', created_by: 'spoof', is_personal: false } },
+      { table: 'workspace_members', data: { workspace_id: 'any', user_id: 'spoof', role: 'owner' } },
+      { table: 'pending_memberships', data: { workspace_id: 'any', email: 'a@b.c', role: 'admin', added_by: 'spoof' } },
+    ]
+
+    for (const { table, data } of nonWritableTables) {
+      it(`silently drops PUT to ${table} (not in writableTables) without poisoning the batch`, async () => {
+        const { token } = await setupAuthedUser(`reject-${table}`)
+        const response = await app.handle(
+          new Request('http://localhost/powersync/upload', {
+            method: 'PUT',
+            headers: uploadHeaders(token),
+            body: JSON.stringify({
+              operations: [{ op: 'PUT' as const, type: table, id: `drop-${table}`, data }],
+            }),
+          }),
+        )
+        expect(response.status).toBe(200)
+        const body = (await response.json()) as { success: boolean }
+        expect(body.success).toBe(true)
+      })
+    }
+
+    it('silently drops PATCH on a non-writable table', async () => {
+      const { token } = await setupAuthedUser('patch-non-writable')
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: uploadHeaders(token),
+          body: JSON.stringify({
+            operations: [
+              {
+                op: 'PATCH' as const,
+                type: 'models',
+                id: 'any-model-id',
+                data: { name: 'Renamed' },
+              },
+            ],
+          }),
+        }),
+      )
+      expect(response.status).toBe(200)
+      const body = (await response.json()) as { success: boolean }
+      expect(body.success).toBe(true)
+    })
+
+    it('applies writable ops even when a non-writable op comes first in the batch', async () => {
+      const { userId, token } = await setupAuthedUser('mixed-first')
+      const workspaceId = 'ws-mixed-first'
+      await insertWorkspaceWithMember(workspaceId, userId)
+
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: uploadHeaders(token),
+          body: JSON.stringify({
+            operations: [
+              {
+                op: 'PUT' as const,
+                type: 'models',
+                id: 'first-dropped',
+                data: { workspace_id: workspaceId, name: 'dropped' },
+              },
+              {
+                op: 'PUT' as const,
+                type: 'chat_threads',
+                id: 'thread-after-skip',
+                data: { workspace_id: workspaceId, title: 'kept' },
+              },
+              { op: 'PUT' as const, type: 'settings', id: 'after-skip', data: { value: 'kept' } },
+            ],
+          }),
+        }),
+      )
+      expect(response.status).toBe(200)
+      const threads = await db.select().from(chatThreadsTable).where(eq(chatThreadsTable.id, 'thread-after-skip'))
+      expect(threads).toHaveLength(1)
+      const settings = await db.select().from(settingsTable).where(eq(settingsTable.key, 'after-skip'))
+      expect(settings).toHaveLength(1)
+      const models = await db.select().from(modelsTable).where(eq(modelsTable.id, 'first-dropped'))
+      expect(models).toHaveLength(0)
+    })
+
+    it('drops non-writable ops but still applies the writable ones in the same batch', async () => {
+      const { userId, token } = await setupAuthedUser('mixed-batch')
+      const workspaceId = 'ws-mixed'
+      await insertWorkspaceWithMember(workspaceId, userId)
+
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: uploadHeaders(token),
+          body: JSON.stringify({
+            operations: [
+              {
+                op: 'PUT' as const,
+                type: 'chat_threads',
+                id: 'thread-mixed',
+                data: { workspace_id: workspaceId, title: 'kept' },
+              },
+              {
+                op: 'PUT' as const,
+                type: 'models',
+                id: 'model-mixed',
+                data: { workspace_id: workspaceId, name: 'dropped' },
+              },
+              { op: 'PUT' as const, type: 'settings', id: 'pref', data: { value: 'kept' } },
+            ],
+          }),
+        }),
+      )
+      expect(response.status).toBe(200)
+      const threads = await db.select().from(chatThreadsTable).where(eq(chatThreadsTable.id, 'thread-mixed'))
+      expect(threads).toHaveLength(1)
+      const settings = await db.select().from(settingsTable).where(eq(settingsTable.key, 'pref'))
+      expect(settings).toHaveLength(1)
+      // The non-writable models op was silently skipped — no row inserted.
+      const models = await db.select().from(modelsTable).where(eq(modelsTable.id, 'model-mixed'))
+      expect(models).toHaveLength(0)
+    })
+
+    it('applies a batch of writes in the same workspace (sanity check for batched membership)', async () => {
+      const { token, userId } = await setupAuthedUser('ws-batch')
+      const workspaceId = 'ws-batch'
+      await insertWorkspaceWithMember(workspaceId, userId)
+
+      const operations = Array.from({ length: 5 }, (_, i) => ({
+        op: 'PUT' as const,
+        type: 'chat_threads',
+        id: `batch-thread-${i}`,
+        data: { workspace_id: workspaceId, title: `t${i}` },
+      }))
+
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: uploadHeaders(token),
+          body: JSON.stringify({ operations }),
+        }),
+      )
+      expect(response.status).toBe(200)
+      const rows = await db.select().from(chatThreadsTable).where(eq(chatThreadsTable.workspaceId, workspaceId))
+      expect(rows).toHaveLength(5)
     })
 
     it('returns 200 with empty operations array', async () => {

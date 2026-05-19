@@ -5,7 +5,7 @@
 import type { Auth } from '@/auth/elysia-plugin'
 import type { Settings } from '@/config/settings'
 import { isOriginAllowed } from '@/config/settings'
-import { applyOperation, getActiveSessionByToken, getDeviceById, getUserById, upsertDevice } from '@/dal'
+import { applyOperations, getActiveSessionByToken, getDeviceById, getUserById, upsertDevice } from '@/dal'
 import type { db as DbType } from '@/db/client'
 import { verifySignedBearerToken } from '@/auth/bearer-token'
 import { safeErrorHandler } from '@/middleware/error-handling'
@@ -235,22 +235,18 @@ export const createPowerSyncRoutes = (auth: Auth, settings: Settings, database: 
           return validation.body
         }
 
-        const operations = body.operations
-
-        // Process operations sequentially to maintain order.
-        // If any operation fails, return 4xx so the client does not call transaction.complete()
-        // and PowerSync will retry the batch.
-        for (const op of operations) {
-          const ok = await applyOperation(database, op, user.id)
-          if (!ok) {
-            set.status = 400
-            return {
-              error: 'Upload operation failed',
-              code: 'UPLOAD_OPERATION_FAILED',
-              table: op.type,
-              id: op.id,
-              op: op.op,
-            }
+        // Process operations sequentially to maintain order. Workspace-membership lookups are
+        // cached for the batch by applyOperations. If any operation fails, return 4xx so the
+        // client does not call transaction.complete() and PowerSync will retry the batch.
+        const result = await applyOperations(database, body.operations, user.id)
+        if (!result.ok) {
+          set.status = 400
+          return {
+            error: 'Upload operation failed',
+            code: 'UPLOAD_OPERATION_FAILED',
+            table: result.failure.table,
+            id: result.failure.id,
+            op: result.failure.op,
           }
         }
 

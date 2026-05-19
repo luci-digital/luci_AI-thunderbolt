@@ -9,19 +9,24 @@ import {
   powersyncPkColumn,
   powersyncTablesByName,
 } from '@/db/powersync-schema'
-import { type PowerSyncTableName, powersyncTableNames } from '@shared/powersync-tables'
+import type { PowerSyncTableName } from '@shared/powersync-tables'
 import { and, eq } from 'drizzle-orm'
 import type { AnyPgTable } from 'drizzle-orm/pg-core'
+import { isActiveWorkspaceMember } from './workspaces'
 
-const validTables = new Set<string>(powersyncTableNames)
+/**
+ * Tables clients may write to via PowerSync upload. Everything else (including new synced tables)
+ * is rejected by default — workspace config writes flow through REST endpoints per Decision 14
+ * of the workspaces spec. Narrowing this set is also the security boundary that prevents a
+ * malicious client from inserting a `workspace_members` row to self-promote.
+ */
+const writableTables = new Set<string>(['chat_threads', 'chat_messages', 'tasks', 'settings'])
 
-/** DB column names that clients cannot set via PowerSync upload (server-managed fields). */
-const uploadDenyColumns: Partial<Record<PowerSyncTableName, string[]>> = {
-  devices: ['revoked_at', 'trusted', 'public_key', 'mlkem_public_key', 'approval_pending'],
-}
-
-/** Tables that cannot be deleted via PowerSync upload — must use dedicated API endpoints. */
-const uploadDenyDelete = new Set<PowerSyncTableName>(['devices'])
+/**
+ * Subset of writable tables that are workspace-scoped (require an active membership check on PUT).
+ * `settings` is account-level and is excluded — the user_id override on its write path is enough.
+ */
+const workspaceScopedWritableTables = new Set<string>(['chat_threads', 'chat_messages', 'tasks'])
 
 type PowerSyncOperation = {
   op: 'PUT' | 'PATCH' | 'DELETE'
@@ -60,16 +65,45 @@ const toSchemaRecord = (
   return out
 }
 
+type MembershipCache = Map<string, boolean>
+
 /**
- * Apply a single PowerSync operation using Drizzle's query builder (parameterized, no raw SQL).
- * The user_id is always set to the authenticated user to ensure data isolation.
+ * Look up workspace membership through the cache, populating it on miss. The cache is scoped
+ * to a single upload batch — see `applyOperations`.
+ */
+const checkMembershipCached = async (
+  database: typeof DbType,
+  workspaceId: string,
+  userId: string,
+  cache: MembershipCache,
+): Promise<boolean> => {
+  const key = `${workspaceId}:${userId}`
+  const cached = cache.get(key)
+  if (cached !== undefined) {
+    return cached
+  }
+  const isMember = await isActiveWorkspaceMember(database, workspaceId, userId)
+  cache.set(key, isMember)
+  return isMember
+}
+
+/**
+ * Apply a single PowerSync upload operation using Drizzle's query builder (parameterized, no raw SQL).
+ *
+ * The user_id is always overridden with the authenticated user's id to prevent forgery. Writes are
+ * rejected for any table not in `writableTables`. For workspace-scoped writable tables, PUT
+ * operations additionally require an active workspace membership.
+ *
+ * Pass a shared `membershipCache` when applying multiple operations in the same upload batch to
+ * avoid redundant `workspace_members` lookups — see `applyOperations`.
  */
 export const applyOperation = async (
   database: typeof DbType,
   op: PowerSyncOperation,
   userId: string,
+  membershipCache: MembershipCache = new Map(),
 ): Promise<boolean> => {
-  if (!validTables.has(op.type)) {
+  if (!writableTables.has(op.type)) {
     return false
   }
 
@@ -85,14 +119,25 @@ export const applyOperation = async (
   const validDbNames = new Set(Object.keys(dbNameToKey))
   const tableWithUserId = table as AnyPgTable & { userId: typeof table.userId }
 
+  // PUT on workspace-scoped writable tables must include a workspace_id in the payload, and the
+  // authenticated user must be an active member of that workspace. settings is exempt — it's
+  // account-level and protected by the user_id override alone.
+  if (op.op === 'PUT' && workspaceScopedWritableTables.has(op.type)) {
+    const workspaceId = op.data?.workspace_id
+    if (typeof workspaceId !== 'string' || workspaceId.length === 0) {
+      return false
+    }
+    const isMember = await checkMembershipCached(database, workspaceId, userId, membershipCache)
+    if (!isMember) {
+      return false
+    }
+  }
+
   switch (op.op) {
     case 'PUT': {
       const payload = { ...(op.data ?? {}) } as Record<string, unknown>
       delete payload.id
       delete payload.user_id
-      for (const col of uploadDenyColumns[tableName] ?? []) {
-        delete payload[col]
-      }
       const rawData: Record<string, unknown> = { ...payload, id: op.id, user_id: userId }
       const schemaValues = toSchemaRecord(rawData, validDbNames, dbNameToKey)
       if (Object.keys(schemaValues).length === 0) {
@@ -123,9 +168,6 @@ export const applyOperation = async (
       const patchPayload = { ...op.data } as Record<string, unknown>
       delete patchPayload.id
       delete patchPayload.user_id
-      for (const col of uploadDenyColumns[tableName] ?? []) {
-        delete patchPayload[col]
-      }
       const schemaPatch = toSchemaRecord(patchPayload, validDbNames, dbNameToKey)
       if (Object.keys(schemaPatch).length === 0) {
         return false
@@ -140,10 +182,6 @@ export const applyOperation = async (
       return patched.length > 0
     }
     case 'DELETE': {
-      if (uploadDenyDelete.has(tableName)) {
-        return false
-      }
-
       const deleted = await database
         .delete(table)
         .where(and(eq(pkColumn, op.id), eq(tableWithUserId.userId, userId)))
@@ -152,5 +190,45 @@ export const applyOperation = async (
       return deleted.length > 0
     }
   }
-  return false
+}
+
+export type ApplyOperationsResult =
+  | { ok: true }
+  | {
+      ok: false
+      failure: { table: string; id: string; op: 'PUT' | 'PATCH' | 'DELETE' }
+    }
+
+/**
+ * Apply a batch of PowerSync upload operations sequentially. Workspace-membership lookups are
+ * memoized for the lifetime of the call so a batch with many ops in the same workspace only
+ * hits `workspace_members` once.
+ *
+ * Ops targeting a non-writable table are skipped (logged, not surfaced) so a stale or buggy
+ * client can't poison the batch — retry would never resolve a table-not-allowlisted condition.
+ * Every other failure (missing workspace_id, removed member, no matching row on PATCH/DELETE,
+ * etc.) bubbles up so the API returns 4xx and PowerSync retries.
+ */
+export const applyOperations = async (
+  database: typeof DbType,
+  operations: PowerSyncOperation[],
+  userId: string,
+): Promise<ApplyOperationsResult> => {
+  const membershipCache: MembershipCache = new Map()
+  for (const op of operations) {
+    if (!writableTables.has(op.type)) {
+      console.warn('powersync.upload.dropped_non_writable', {
+        table: op.type,
+        op: op.op,
+        id: op.id,
+        userId,
+      })
+      continue
+    }
+    const ok = await applyOperation(database, op, userId, membershipCache)
+    if (!ok) {
+      return { ok: false, failure: { table: op.type, id: op.id, op: op.op } }
+    }
+  }
+  return { ok: true }
 }
