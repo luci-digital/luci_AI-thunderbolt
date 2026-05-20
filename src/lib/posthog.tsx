@@ -9,9 +9,8 @@ import { getLocalSetting } from '@/stores/local-settings-store'
 import { createHandleError } from '@/lib/error-utils'
 import { createClient } from '@/lib/http'
 import type { HandleError, HandleResult } from '@/types/handle-errors'
-import posthog, { type PostHog } from 'posthog-js'
-import { PostHogProvider as PostHogReactProvider } from 'posthog-js/react'
-import { createContext, useContext, type ReactNode } from 'react'
+import type { PostHog } from 'posthog-js'
+import { createContext, useContext, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 
 let posthogClient: PostHog | null = null
 
@@ -48,11 +47,17 @@ export const sanitizeUrl = (url: string): string => {
   return url
 }
 
+export type PosthogInitResult = {
+  client: PostHog | null
+  telemetryAvailable: boolean
+}
+
 /**
- * Initialize Posthog analytics and return the client
- * @param httpClient - Optional HTTP client for dependency injection. If not provided, creates a client with cloudUrl from settings as prefixUrl
+ * Initialize PostHog analytics. Loads `posthog-js` via dynamic import only
+ * after the user has opted in, so the SDK lives in an async chunk.
+ * `telemetryAvailable` reports whether the backend has an API key configured.
  */
-export const initPosthog = async (httpClient?: HttpClient): Promise<HandleResult<PostHog | null>> => {
+export const initPosthog = async (httpClient?: HttpClient): Promise<HandleResult<PosthogInitResult>> => {
   try {
     const cloudUrl = getLocalSetting('cloudUrl')
     const debugPosthog = getLocalSetting('debugPosthog')
@@ -68,15 +73,18 @@ export const initPosthog = async (httpClient?: HttpClient): Promise<HandleResult
 
     if (!apiKey) {
       console.warn('Posthog analytics disabled - no API key provided')
-      return { success: true, data: null }
+      return { success: true, data: { client: null, telemetryAvailable: false } }
     }
 
-    // Use the cloudUrl proxy for PostHog analytics
-    const apiHost = `${cloudUrl}/posthog`
+    if (!dataCollection) {
+      // Don't load the SDK until the user opts in.
+      return { success: true, data: { client: null, telemetryAvailable: true } }
+    }
 
     if (!posthogClient) {
+      const { default: posthog } = await import('posthog-js')
+      const apiHost = `${cloudUrl}/posthog`
       posthogClient = posthog.init(apiKey, {
-        opt_out_capturing_by_default: !dataCollection,
         api_host: apiHost,
         debug: debugPosthog,
         autocapture: false,
@@ -111,7 +119,7 @@ export const initPosthog = async (httpClient?: HttpClient): Promise<HandleResult
       }) as PostHog
     }
 
-    return { success: true, data: posthogClient }
+    return { success: true, data: { client: posthogClient, telemetryAvailable: true } }
   } catch (error) {
     console.warn('Failed to initialize PostHog, continuing without analytics:', error)
     return {
@@ -123,19 +131,49 @@ export const initPosthog = async (httpClient?: HttpClient): Promise<HandleResult
 
 const TelemetryAvailableContext = createContext(false)
 
+type PosthogClientContextValue = {
+  client: PostHog | null
+  setClient: Dispatch<SetStateAction<PostHog | null>>
+}
+
+const PosthogClientContext = createContext<PosthogClientContextValue | null>(null)
+
 /**
- * Whether telemetry is actually wired up (i.e. a PostHog client was successfully initialized
- * because the backend supplied a public API key). Self-hosted deployments without a configured
- * key return false here regardless of the user's `data_collection` consent setting.
+ * True when the backend has a PostHog API key configured. Independent of the
+ * user's `data_collection` consent.
  */
 export const useTelemetryAvailable = () => useContext(TelemetryAvailableContext)
 
-/**
- * PostHog Provider component for React
- */
-export const PostHogProvider = ({ children, client }: { children: ReactNode; client: PostHog | null }) => {
-  const inner = client ? <PostHogReactProvider client={client}>{children}</PostHogReactProvider> : children
-  return <TelemetryAvailableContext.Provider value={!!client}>{inner}</TelemetryAvailableContext.Provider>
+const usePosthogClientContext = (): PosthogClientContextValue => {
+  const ctx = useContext(PosthogClientContext)
+  if (!ctx) {
+    throw new Error('usePosthog must be used inside <PostHogProvider>')
+  }
+  return ctx
+}
+
+/** Loaded PostHog client, or null when the SDK has not been initialized. */
+export const usePosthog = (): PostHog | null => usePosthogClientContext().client
+
+/** Publish a freshly-loaded client into the tree after a lazy opt-in init. */
+export const useSetPosthog = (): Dispatch<SetStateAction<PostHog | null>> => usePosthogClientContext().setClient
+
+export const PostHogProvider = ({
+  children,
+  initialClient,
+  telemetryAvailable,
+}: {
+  children: ReactNode
+  initialClient: PostHog | null
+  telemetryAvailable: boolean
+}) => {
+  const [client, setClient] = useState<PostHog | null>(initialClient)
+  const value = useMemo(() => ({ client, setClient }), [client])
+  return (
+    <TelemetryAvailableContext.Provider value={telemetryAvailable}>
+      <PosthogClientContext.Provider value={value}>{children}</PosthogClientContext.Provider>
+    </TelemetryAvailableContext.Provider>
+  )
 }
 
 export type EventType =

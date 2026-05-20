@@ -32,6 +32,7 @@ export type InitData = {
   tray: TrayIcon | undefined
   window: Window | undefined
   posthogClient: PostHog | null
+  telemetryAvailable: boolean
   httpClient: HttpClient
   experimentalFeatureTasks: boolean
 }

@@ -12,7 +12,7 @@ import { useUnitsOptions } from '@/hooks/use-units-options'
 import { privacyPolicyUrl } from '@/lib/constants'
 import { extractCountryFromLocation } from '@/lib/country-utils'
 import { clearLocalData } from '@/lib/cleanup'
-import { trackEvent, useTelemetryAvailable } from '@/lib/posthog'
+import { initPosthog, trackEvent, usePosthog, useSetPosthog, useTelemetryAvailable } from '@/lib/posthog'
 import type { CountryUnitsData } from '@/types'
 import { useHttpClient } from '@/contexts'
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
@@ -41,7 +41,6 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SectionCard } from '@/components/ui/section-card'
 import { Switch } from '@/components/ui/switch'
-import { usePostHog } from 'posthog-js/react'
 import { usePowerSyncStatus } from '@/hooks/use-powersync-status'
 import { useSyncEnabledToggle } from '@/hooks/use-sync-enabled-toggle'
 
@@ -96,7 +95,8 @@ export default function PreferencesSettingsPage() {
   const telemetryRequiredModalRef = useRef<TelemetryRequiredModalRef>(null)
   const telemetryWarningModalRef = useRef<TelemetryWarningModalRef>(null)
 
-  const postHog = usePostHog()
+  const postHog = usePosthog()
+  const setPostHog = useSetPosthog()
   const telemetryAvailable = useTelemetryAvailable()
 
   const httpClient = useHttpClient()
@@ -188,11 +188,20 @@ export default function PreferencesSettingsPage() {
     await dataCollection.setValue(value)
 
     if (value) {
-      postHog.opt_in_capturing()
+      // Lazy-init when the user opts in after startup.
+      let client = postHog
+      if (!client && telemetryAvailable) {
+        const result = await initPosthog(httpClient)
+        if (result.success && result.data.client) {
+          client = result.data.client
+          setPostHog(client)
+        }
+      }
+      client?.opt_in_capturing()
       trackEvent('settings_data_collection_enabled')
     } else {
       trackEvent('settings_data_collection_disabled')
-      postHog.opt_out_capturing()
+      postHog?.opt_out_capturing()
       // Also disable experimental features
       await experimentalFeatureTasks.setValue(false)
       trackEvent('settings_experimental_feature_tasks_disabled')

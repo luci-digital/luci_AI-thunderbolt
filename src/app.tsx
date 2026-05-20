@@ -227,7 +227,10 @@ export const App = () => {
             <HttpClientProvider httpClient={initData.httpClient}>
               <AuthProvider cloudUrl={initData.cloudUrl}>
                 <SignInModalProvider>
-                  <PostHogProvider client={initData.posthogClient}>
+                  <PostHogProvider
+                    initialClient={initData.posthogClient}
+                    telemetryAvailable={initData.telemetryAvailable}
+                  >
                     <TrayProvider tray={initData.tray} window={initData.window}>
                       <MCPProvider>
                         <HapticsProvider>

@@ -14,14 +14,13 @@ import { createAppDir, resetAppDir } from '@/lib/fs'
 import { isSsoMode } from '@/lib/auth-mode'
 import { createAuthenticatedClient } from '@/lib/http'
 import { getDatabasePath, getDatabaseType } from '@/lib/platform'
-import { initPosthog, trackError } from '@/lib/posthog'
+import { initPosthog, type PosthogInitResult, trackError } from '@/lib/posthog'
 import { reconcileDefaults } from '@/lib/reconcile-defaults'
 import { TrayManager } from '@/lib/tray'
 import type { InitData } from '@/types'
 import type { HandleError, HandleResult } from '@/types/handle-errors'
 import type { TrayIcon } from '@tauri-apps/api/tray'
 import type { Window } from '@tauri-apps/api/window'
-import type { PostHog } from 'posthog-js'
 import { useCallback, useEffect, useState } from 'react'
 
 const createAppDirectory = async (): Promise<string> => {
@@ -51,9 +50,9 @@ const initializeTray = async (): Promise<{ tray: TrayIcon | undefined; window: W
   return await TrayManager.initIfSupported()
 }
 
-const initializePostHog = async (httpClient?: HttpClient): Promise<PostHog | null> => {
+const initializePostHog = async (httpClient?: HttpClient): Promise<PosthogInitResult> => {
   const result = await initPosthog(httpClient)
-  return result.success ? result.data : null
+  return result.success ? result.data : { client: null, telemetryAvailable: false }
 }
 
 const executeInitializationSteps = async (httpClient?: HttpClient): Promise<HandleResult<InitData>> => {
@@ -151,10 +150,10 @@ const executeInitializationSteps = async (httpClient?: HttpClient): Promise<Hand
     trackError(trayError, { initialization_step: 'tray' })
   }
 
-  // Step 8: PostHog initialization (non-critical)
-  let posthogClient: PostHog | null = null
+  // Step 8: PostHog initialization (non-critical).
+  let posthogResult: PosthogInitResult = { client: null, telemetryAvailable: false }
   try {
-    posthogClient = await initializePostHog(client)
+    posthogResult = await initializePostHog(client)
   } catch (error) {
     console.warn('Unexpected error during PostHog initialization:', error)
   }
@@ -165,7 +164,8 @@ const executeInitializationSteps = async (httpClient?: HttpClient): Promise<Hand
       db,
       cloudUrl,
       experimentalFeatureTasks,
-      posthogClient,
+      posthogClient: posthogResult.client,
+      telemetryAvailable: posthogResult.telemetryAvailable,
       httpClient: client,
       ...tray,
     },
