@@ -139,22 +139,19 @@ const CategoryTab = ({
 )
 
 const InstallPill = ({ installed, onToggle }: { installed: boolean; onToggle: () => void }) => (
-  <button
+  <Button
     type="button"
+    variant={installed ? 'outline' : 'default'}
+    size="sm"
     onClick={(e) => {
       e.stopPropagation()
       onToggle()
     }}
     aria-label={installed ? 'Uninstall' : 'Install'}
-    className={cn(
-      'inline-flex h-6 shrink-0 cursor-pointer items-center rounded-md px-2 text-sm font-normal transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px',
-      installed
-        ? 'border border-border bg-transparent text-foreground hover:bg-accent active:bg-accent'
-        : 'bg-primary text-primary-foreground hover:bg-primary/85 active:bg-primary/75',
-    )}
+    className="h-6 shrink-0 px-2 text-sm font-normal"
   >
     {installed ? 'Uninstall' : 'Install'}
-  </button>
+  </Button>
 )
 
 const SkillTile = ({
@@ -171,7 +168,9 @@ const SkillTile = ({
   <div
     className={cn(
       'flex h-[170px] flex-col gap-0.5 overflow-hidden rounded-xl p-4 transition-colors',
-      active ? 'border-2 border-border bg-border' : 'border-2 border-transparent bg-secondary hover:bg-accent',
+      active
+        ? 'border-2 border-border bg-border'
+        : 'border-2 border-transparent bg-secondary hover:bg-accent dark:bg-sidebar dark:hover:bg-accent',
     )}
   >
     <div className="flex items-center justify-between gap-3">
@@ -203,7 +202,7 @@ const SkillPreview = ({
   onToggleInstall: (name: string) => void
   onClose: () => void
 }) => (
-  <div className="flex h-full flex-col gap-4 overflow-hidden bg-background px-4 py-4 md:px-6 text-foreground">
+  <div className="flex h-full flex-col gap-4 overflow-hidden bg-background px-4 py-4 md:px-6 text-foreground dark:bg-sidebar">
     <header className="flex flex-col gap-4 md:gap-2">
       <div className="relative flex h-9 items-center">
         <Button
@@ -399,7 +398,7 @@ export const Marketplace = () => {
           {selected && (
             <motion.div
               key="mobile-preview"
-              className="absolute inset-0 z-10 flex h-full w-full flex-col overflow-y-auto bg-background"
+              className="absolute inset-0 z-10 flex h-full w-full flex-col overflow-y-auto bg-background dark:bg-sidebar"
               initial={{ x: '100%' }}
               animate={{ x: 0 }}
               exit={{ x: '100%' }}

@@ -233,7 +233,6 @@ export const SkillsList = ({
                     onKeyDown={(e) => e.stopPropagation()}
                   >
                     <Switch
-                      size="sm"
                       checked={enabled}
                       onCheckedChange={(next) => onToggleEnabled(skill.name, next)}
                       aria-label={enabled ? `Disable ${skill.name}` : `Enable ${skill.name}`}
