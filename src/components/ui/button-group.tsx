@@ -43,7 +43,10 @@ const ButtonGroup = ({
       data-slot="button-group"
       data-variant={variant}
       data-size={size}
-      className={cn('group/button-group flex w-fit items-center rounded-xl', className)}
+      className={cn(
+        'group/button-group flex w-fit items-center rounded-lg data-[variant=outline]:shadow-xs',
+        className,
+      )}
       {...props}
     >
       <ButtonGroupContext.Provider value={{ variant, size }}>{children}</ButtonGroupContext.Provider>

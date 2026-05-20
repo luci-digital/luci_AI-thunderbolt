@@ -23,7 +23,7 @@ export const ThemeToggle = () => {
         setTheme(value as 'light' | 'dark' | 'system')
         trackEvent('settings_theme_set', { theme: value })
       }}
-      className="justify-start rounded-xl"
+      className="justify-start rounded-lg"
     >
       <ToggleGroupItem
         value="light"

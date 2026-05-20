@@ -368,7 +368,7 @@ const SimulatorContent = () => {
                 placeholder="SSE content will be processed by the actual streamText function..."
                 value={sseContent}
                 onChange={(e) => setSseContent(e.target.value)}
-                className="min-h-[200px] font-mono text-xs rounded-xl"
+                className="min-h-[200px] font-mono text-xs rounded-lg"
                 disabled={isRunning}
               />
 

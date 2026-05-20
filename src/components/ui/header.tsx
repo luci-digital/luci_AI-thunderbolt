@@ -70,10 +70,10 @@ export const Header = () => {
           <Button
             variant="ghost"
             size="icon"
-            className="size-[var(--touch-height-sm)] cursor-pointer text-muted-foreground hover:text-foreground"
+            className="size-[var(--touch-height-sm)] cursor-pointer"
             onClick={toggleSidebar}
           >
-            <Menu className="size-[var(--icon-size-lg)]" strokeWidth={1.5} />
+            <Menu className="size-[var(--icon-size-default)]" />
             <span className="sr-only">Toggle Sidebar</span>
           </Button>
         </div>
@@ -85,10 +85,10 @@ export const Header = () => {
             <Button
               variant="ghost"
               size="icon"
-              className="size-[var(--touch-height-sm)] cursor-pointer text-muted-foreground hover:text-foreground"
+              className="size-[var(--touch-height-sm)] cursor-pointer"
               onClick={handleNewChat}
             >
-              <MessageCirclePlus className="size-[var(--icon-size-lg)]" strokeWidth={1.5} />
+              <MessageCirclePlus className="size-[var(--icon-size-default)]" />
               <span className="sr-only">New Chat</span>
             </Button>
           )}
@@ -97,12 +97,11 @@ export const Header = () => {
     )
   }
 
-  // Desktop: Left-aligned with PowerSync status on the right.
-  // Sync status is chat-only — settings views don't show it.
+  // Desktop: Left-aligned with PowerSync status on the right
   return (
     <header className="flex h-[var(--touch-height-xl)] w-full items-center justify-between px-2 flex-shrink-0">
       <div className="flex items-center">{modelSelector}</div>
-      {isChatRoute && <PowerSyncStatus />}
+      <PowerSyncStatus />
     </header>
   )
 }

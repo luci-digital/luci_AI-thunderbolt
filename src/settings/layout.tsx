@@ -4,18 +4,9 @@
 
 import { Header } from '@/components/ui/header'
 import { SidebarInset } from '@/components/ui/sidebar'
-import { useIsMobile } from '@/hooks/use-mobile'
-import { Outlet, useLocation } from 'react-router'
-
-// Pages that render their own top-bar (with hamburger toggle inline) and
-// should skip the shared Header on mobile.
-const customMobileHeaderRoutes = ['/settings/skills', '/marketplace']
+import { Outlet } from 'react-router'
 
 export default function SettingsLayout() {
-  const { isMobile } = useIsMobile()
-  const location = useLocation()
-  const hasCustomMobileHeader = customMobileHeaderRoutes.some((p) => location.pathname.startsWith(p))
-
   return (
     <>
       <SidebarInset className="h-full overflow-hidden flex flex-col">
@@ -26,7 +17,7 @@ export default function SettingsLayout() {
             paddingBottom: 'var(--kb, 0px)',
           }}
         >
-          {isMobile && !hasCustomMobileHeader && <Header />}
+          <Header />
           <div
             className="flex-1 overflow-auto"
             style={{
