@@ -41,6 +41,9 @@ const meetingNotesInstruction = `Pull three things out of the notes, in this ord
 
 End with one sentence asking whether the user wants help drafting a recap message to send to attendees.`
 
+// A couple of these are marked `source: 'marketplace'` so the source-aware UI
+// (badge, version, source filter, uninstall vs delete) has data to render
+// against in the shell. Backend will replace `baseSkills` with a per-user fetch.
 export const baseSkills: Skill[] = [
   {
     name: '/weekly-review',
@@ -55,5 +58,41 @@ export const baseSkills: Skill[] = [
     pinned: true,
     description: meetingNotesDescription,
     instruction: meetingNotesInstruction,
+  },
+  {
+    name: '/tast-triage',
+    source: 'marketplace',
+    version: '1.0.0',
+    description:
+      'Use this skill when the user dumps a list of tasks, a backlog, or a to-do brain-dump and wants help prioritizing. Triggers include "what should I work on first," "help me triage this list," "I have too much going on," or "rank these by priority." Do not use for project planning across multiple weeks or for one-off task creation.',
+    instruction: `Help the user sort their list using a priority and effort frame. Stay decisive; do not produce a long analysis.
+
+1. ESTIMATE — for each item, infer an effort level (S / M / L) and a priority (high / med / low). Surface anything ambiguous in one short clarifying question.
+
+2. STACK-RANK — produce a single ordered list. High-priority Smalls go first ("quick wins"), then high-priority Mediums, then everything else by priority.
+
+3. CALL OUT — name the top 1-3 items the user should do today, and any items that look like they should be dropped or delegated.
+
+Do not produce sub-tasks unless asked.`,
+  },
+  {
+    name: '/product-design',
+    source: 'marketplace',
+    version: '1.0.0',
+    description:
+      'Designing end-to-end user experiences, from understanding user problems and researching user solutions to delivering polished, production-ready interfaces that ship.',
+    instruction: `Walk the user through a product design pass in five steps. Don't combine steps; one clean pass per step.
+
+1. PROBLEM. Restate the user problem in one sentence. Surface who the user is, what they're trying to do, and why it's painful today.
+
+2. CONSTRAINTS. List the platform, time, technical, and business constraints that bound the solution space.
+
+3. SKETCH. Propose two or three solution directions at a high level. Note what each is good and bad at.
+
+4. PICK. Recommend one direction. Say what evidence would change your mind.
+
+5. NEXT. Identify the smallest version that can be tested with users this week.
+
+End with a one-paragraph summary the user can share with the team.`,
   },
 ]

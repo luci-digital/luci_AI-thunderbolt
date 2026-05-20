@@ -6,21 +6,15 @@ import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 
 import { baseSkills, type Skill } from './skills-data'
-import { cards, defaultInstalledNames, cardToSkill } from './marketplace-data'
 
 const recentLimit = 20
 
 const initialPinned = (): Set<string> => new Set(baseSkills.filter((s) => s.pinned).map((s) => s.name))
 
-const buildLibrary = (localOverrides: Map<string, Skill>, installed: Set<string>, deleted: Set<string>): Skill[] => {
+const buildLibrary = (localOverrides: Map<string, Skill>, deleted: Set<string>): Skill[] => {
   const merged = new Map<string, Skill>()
   for (const skill of baseSkills) {
     merged.set(skill.name, skill)
-  }
-  for (const card of cards) {
-    if (installed.has(card.name) && !merged.has(card.name)) {
-      merged.set(card.name, cardToSkill(card))
-    }
   }
   for (const [name, override] of localOverrides) {
     merged.set(name, override)
@@ -36,7 +30,6 @@ type SkillsState = {
   pinnedSet: Set<string>
   disabled: Set<string>
   recent: string[]
-  installed: Set<string>
   localOverrides: Map<string, Skill>
   deleted: Set<string>
 
@@ -44,8 +37,6 @@ type SkillsState = {
   movePinned: (name: string, index: number) => void
   setEnabled: (name: string, next: boolean) => void
   recordUsed: (name: string) => void
-  install: (name: string) => void
-  uninstall: (name: string) => void
   addLocalSkill: (skill: { name: string; description: string; instruction: string }) => void
   updateLocalSkill: (previousName: string, next: { name: string; description: string; instruction: string }) => void
   markDeleted: (name: string) => void
@@ -56,7 +47,6 @@ export const useSkillsStore = create<SkillsState>()((set) => ({
   pinnedSet: initialPinned(),
   disabled: new Set(),
   recent: [],
-  installed: new Set(defaultInstalledNames),
   localOverrides: new Map(),
   deleted: new Set(),
 
@@ -106,22 +96,6 @@ export const useSkillsStore = create<SkillsState>()((set) => ({
       return { recent }
     }),
 
-  install: (name) =>
-    set((state) => {
-      const installed = new Set(state.installed)
-      installed.add(name)
-      const deleted = new Set(state.deleted)
-      deleted.delete(name)
-      return { installed, deleted }
-    }),
-
-  uninstall: (name) =>
-    set((state) => {
-      const installed = new Set(state.installed)
-      installed.delete(name)
-      return { installed }
-    }),
-
   addLocalSkill: (skill) =>
     set((state) => {
       const localOverrides = new Map(state.localOverrides)
@@ -164,19 +138,17 @@ export const useSkillsStore = create<SkillsState>()((set) => ({
       deleted.add(name)
       const localOverrides = new Map(state.localOverrides)
       localOverrides.delete(name)
-      const installed = new Set(state.installed)
-      installed.delete(name)
-      return { deleted, localOverrides, installed }
+      return { deleted, localOverrides }
     }),
 }))
 
 // ---------- Selector hooks (adapter shape close to source for clean ports) ----------
 
 export const useLibrarySkills = () => {
-  const { localOverrides, installed, deleted } = useSkillsStore(
-    useShallow((s) => ({ localOverrides: s.localOverrides, installed: s.installed, deleted: s.deleted })),
+  const { localOverrides, deleted } = useSkillsStore(
+    useShallow((s) => ({ localOverrides: s.localOverrides, deleted: s.deleted })),
   )
-  const skills = buildLibrary(localOverrides, installed, deleted)
+  const skills = buildLibrary(localOverrides, deleted)
   const addLocalSkill = useSkillsStore((s) => s.addLocalSkill)
   const updateLocalSkill = useSkillsStore((s) => s.updateLocalSkill)
   const markDeleted = useSkillsStore((s) => s.markDeleted)
@@ -202,11 +174,4 @@ export const useRecentSkills = () => {
   const recent = useSkillsStore((s) => s.recent)
   const recordUsed = useSkillsStore((s) => s.recordUsed)
   return { recent, recordUsed }
-}
-
-export const useInstalledSkills = () => {
-  const installed = useSkillsStore((s) => s.installed)
-  const install = useSkillsStore((s) => s.install)
-  const uninstall = useSkillsStore((s) => s.uninstall)
-  return { installed, install, uninstall }
 }

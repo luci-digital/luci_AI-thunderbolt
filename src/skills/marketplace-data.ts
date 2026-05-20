@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import type { Skill } from './skills-data'
-
 export type MarketplaceCategory = 'skills' | 'integrations' | 'mcp' | 'models' | 'agents' | 'widget' | 'extensions'
 
 export type Card = {
@@ -277,11 +275,3 @@ export const defaultInstalledNames = new Set<string>([
   '/ui-design',
   '/product-strategy',
 ])
-
-export const cardToSkill = (card: Card): Skill => ({
-  name: card.name,
-  source: 'marketplace',
-  version: '1.0.0',
-  description: card.description,
-  instruction: card.instruction,
-})

@@ -32,8 +32,7 @@ import { Input } from '@/components/ui/input'
 import { useSidebar } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useIsMobile } from '@/hooks/use-mobile'
-import { cards, type Card as MarketplaceCard } from '@/skills/marketplace-data'
-import { useInstalledSkills } from '@/skills/use-skills-placeholder'
+import { cards, defaultInstalledNames, type Card as MarketplaceCard } from '@/skills/marketplace-data'
 import { cn } from '@/lib/utils'
 
 const categories: { key: string; label: string; icon: ComponentType<{ className?: string }> }[] = [
@@ -350,16 +349,21 @@ export const Marketplace = () => {
   const [closingName, setClosingName] = useState<string | null>(null)
   const [filter, setFilter] = useState<InstallFilter>('all')
   const [activeCategory, setActiveCategory] = useState<string>('skills')
-  const { installed: installedNames, install, uninstall } = useInstalledSkills()
+  // Local install state for the visual shell — backend will replace with a per-user fetch + install/uninstall mutations.
+  const [installedNames, setInstalledNames] = useState<Set<string>>(() => new Set(defaultInstalledNames))
   const { isMobile } = useIsMobile()
   const { toggleSidebar } = useSidebar()
 
   const toggleInstall = (name: string) => {
-    if (installedNames.has(name)) {
-      uninstall(name)
-    } else {
-      install(name)
-    }
+    setInstalledNames((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) {
+        next.delete(name)
+      } else {
+        next.add(name)
+      }
+      return next
+    })
   }
 
   const visible = useMemo(
