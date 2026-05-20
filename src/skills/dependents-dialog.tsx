@@ -56,7 +56,7 @@ export const DependentsDialog = ({
             <button
               type="button"
               onClick={() => onJumpToDependent(dep.name)}
-              className="flex w-full items-center justify-between rounded-xl border border-border-strong bg-background px-3 py-2 text-sm text-foreground transition-colors hover:bg-bg-hover"
+              className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
             >
               <span>{dep.name}</span>
               <ArrowRight size={16} className="text-muted-foreground" />

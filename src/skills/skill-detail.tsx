@@ -99,7 +99,7 @@ export const SkillDetail = ({
                 size="icon-sm"
                 onClick={onBack}
                 aria-label="Back to skills"
-                className="size-8 shrink-0 rounded-md border border-border-strong text-muted-foreground hover:text-foreground"
+                className="size-8 shrink-0 rounded-md border border-border text-muted-foreground hover:text-foreground"
               >
                 <ChevronLeft className="size-5 md:size-4" />
               </Button>
@@ -169,7 +169,7 @@ export const SkillDetail = ({
               <DropdownMenuContent
                 align="end"
                 sideOffset={8}
-                className="flex w-56 flex-col gap-0 rounded-xl border border-border-strong bg-card px-2 py-3"
+                className="flex w-56 flex-col gap-0 rounded-xl border border-border bg-card px-2 py-3"
               >
                 {isMobile && (
                   <>

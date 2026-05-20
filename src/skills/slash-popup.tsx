@@ -29,7 +29,7 @@ export const SlashPopup = ({
   }, [highlightedIdx])
 
   return (
-    <div className="absolute bottom-full left-0 z-50 mb-2 w-[360px] rounded-xl border border-border-strong bg-card px-2 py-3 shadow-md">
+    <div className="absolute bottom-full left-0 z-50 mb-2 w-[360px] rounded-xl border border-border bg-card px-2 py-3 shadow-md">
       <ul ref={listRef} className="max-h-[calc(3*(14px+3lh))] flex-col gap-0 overflow-y-auto">
         {skills.map((skill, idx) => (
           <li key={skill.name}>
@@ -41,7 +41,7 @@ export const SlashPopup = ({
               }}
               onMouseEnter={() => onHover(idx)}
               className={`flex w-full flex-col gap-0.5 rounded-xl px-2 py-1.5 text-left transition-colors ${
-                idx === highlightedIdx ? 'bg-accent' : 'hover:bg-bg-hover'
+                idx === highlightedIdx ? 'bg-accent' : 'hover:bg-accent'
               }`}
             >
               <span className="text-sm text-foreground">{skill.name}</span>

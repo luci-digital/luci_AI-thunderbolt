@@ -71,7 +71,7 @@ const InstallFilterSelect = ({ value, onChange }: { value: InstallFilter; onChan
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="h-9 justify-between gap-1.5 border-border-strong bg-transparent dark:bg-transparent px-3 text-sm font-normal text-foreground shadow-none hover:bg-bg-hover dark:hover:bg-bg-hover [&_svg:not([class*='size-'])]:size-3.5"
+          className="h-9 justify-between gap-1.5 border-border bg-transparent dark:bg-transparent px-3 text-sm font-normal text-foreground shadow-none hover:bg-accent dark:hover:bg-accent [&_svg:not([class*='size-'])]:size-3.5"
         >
           <span className="grid grid-cols-1 grid-rows-1 text-left [&>*]:col-start-1 [&>*]:row-start-1">
             {options.map((opt) => (
@@ -91,7 +91,7 @@ const InstallFilterSelect = ({ value, onChange }: { value: InstallFilter; onChan
         side="bottom"
         align="end"
         sideOffset={8}
-        className="flex min-w-44 flex-col gap-0 rounded-xl border border-border-strong bg-card px-2 py-3"
+        className="flex min-w-44 flex-col gap-0 rounded-xl border border-border bg-card px-2 py-3"
       >
         {options.map((opt) => (
           <DropdownMenuItem
@@ -123,7 +123,7 @@ const CategoryTab = ({
     onClick={onClick}
     className={cn(
       'relative isolate inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-sm font-normal text-foreground transition-colors',
-      !active && 'hover:bg-bg-hover',
+      !active && 'hover:bg-accent',
     )}
   >
     {active && (
@@ -149,7 +149,7 @@ const InstallPill = ({ installed, onToggle }: { installed: boolean; onToggle: ()
     className={cn(
       'inline-flex h-6 shrink-0 cursor-pointer items-center rounded-md px-2 text-sm font-normal transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px',
       installed
-        ? 'border border-border-strong bg-transparent text-foreground hover:bg-bg-hover active:bg-bg-active'
+        ? 'border border-border bg-transparent text-foreground hover:bg-accent active:bg-accent'
         : 'bg-primary text-primary-foreground hover:bg-primary/85 active:bg-primary/75',
     )}
   >
@@ -171,7 +171,7 @@ const SkillTile = ({
   <div
     className={cn(
       'flex h-[170px] flex-col gap-0.5 overflow-hidden rounded-xl p-4 transition-colors',
-      active ? 'border-2 border-border-strong bg-border' : 'border-2 border-transparent bg-secondary hover:bg-accent',
+      active ? 'border-2 border-border bg-border' : 'border-2 border-transparent bg-secondary hover:bg-accent',
     )}
   >
     <div className="flex items-center justify-between gap-3">
@@ -211,7 +211,7 @@ const SkillPreview = ({
           size="icon-sm"
           aria-label="Back"
           onClick={onClose}
-          className="size-8 absolute left-0 shrink-0 rounded-md border border-border-strong text-muted-foreground hover:text-foreground md:hidden"
+          className="size-8 absolute left-0 shrink-0 rounded-md border border-border text-muted-foreground hover:text-foreground md:hidden"
         >
           <ChevronLeft className="size-5" />
         </Button>
@@ -241,14 +241,14 @@ const SkillPreview = ({
     </header>
 
     <div className="flex items-center gap-2">
-      <Button variant="outline" size="lg" className="h-9 border-border-strong px-3 text-sm font-normal">
+      <Button variant="outline" size="lg" className="h-9 border-border px-3 text-sm font-normal">
         <Code size={16} />
         Source Code
       </Button>
       <Button
         variant={installed ? 'outline' : 'default'}
         size="lg"
-        className={`h-9 px-3 text-sm font-normal ${installed ? 'border-border-strong' : ''}`}
+        className={`h-9 px-3 text-sm font-normal ${installed ? 'border-border' : ''}`}
         onClick={() => onToggleInstall(card.name)}
       >
         {installed ? 'Uninstall' : 'Install'}
@@ -434,7 +434,7 @@ export const Marketplace = () => {
                 variant="outline"
                 size="lg"
                 onClick={() => navigate(-1)}
-                className="h-9 gap-1.5 border-border-strong px-3 text-sm"
+                className="h-9 gap-1.5 border-border px-3 text-sm"
               >
                 <ChevronLeft />
                 Skills Page
@@ -455,7 +455,7 @@ export const Marketplace = () => {
                 />
               ))}
             </nav>
-            <div className="-mr-4 h-px bg-border-strong md:mr-0" />
+            <div className="-mr-4 h-px bg-border md:mr-0" />
           </div>
 
           <div className="mt-2 flex items-center gap-3">
@@ -464,7 +464,7 @@ export const Marketplace = () => {
               <Input
                 type="text"
                 placeholder="Search Skills"
-                className="h-9 rounded-lg border-border-strong pl-9 text-sm placeholder:text-muted-foreground"
+                className="h-9 rounded-lg border-border pl-9 text-sm placeholder:text-muted-foreground"
               />
             </div>
             <InstallFilterSelect value={filter} onChange={setFilter} />

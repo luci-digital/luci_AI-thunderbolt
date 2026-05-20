@@ -62,8 +62,8 @@ export const SuggestionChip = ({
         collisionPadding={16}
         className={
           isMobile
-            ? 'flex w-[calc(100vw-2rem)] flex-col gap-0 rounded-xl border border-border-strong bg-card px-2 py-3'
-            : 'flex flex-col gap-0 rounded-xl border border-border-strong bg-card px-2 py-3'
+            ? 'flex w-[calc(100vw-2rem)] flex-col gap-0 rounded-xl border border-border bg-card px-2 py-3'
+            : 'flex flex-col gap-0 rounded-xl border border-border bg-card px-2 py-3'
         }
       >
         <DropdownMenuItem asChild className="h-11 gap-1.5 px-2 text-sm md:h-9 [&_svg:not([class*='size-'])]:size-4">

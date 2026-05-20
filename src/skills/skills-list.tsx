@@ -42,7 +42,7 @@ const SourceFilterSelect = ({ value, onChange }: { value: SourceFilter; onChange
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="h-9 justify-between gap-1.5 border-border-strong bg-transparent dark:bg-transparent px-3 text-sm font-normal text-foreground shadow-none hover:bg-bg-hover dark:hover:bg-bg-hover [&_svg:not([class*='size-'])]:size-3.5"
+          className="h-9 justify-between gap-1.5 border-border bg-transparent dark:bg-transparent px-3 text-sm font-normal text-foreground shadow-none hover:bg-accent dark:hover:bg-accent [&_svg:not([class*='size-'])]:size-3.5"
         >
           <span className="grid grid-cols-1 grid-rows-1 text-left [&>*]:col-start-1 [&>*]:row-start-1">
             {options.map((opt) => (
@@ -62,7 +62,7 @@ const SourceFilterSelect = ({ value, onChange }: { value: SourceFilter; onChange
         side="bottom"
         align="end"
         sideOffset={8}
-        className="flex min-w-40 flex-col gap-0 rounded-xl md:rounded-lg border border-border-strong bg-card px-2 py-3"
+        className="flex min-w-40 flex-col gap-0 rounded-xl md:rounded-lg border border-border bg-card px-2 py-3"
       >
         {options.map((opt) => (
           <DropdownMenuItem
@@ -143,7 +143,7 @@ export const SkillsList = ({
           <DropdownMenuContent
             align="end"
             sideOffset={8}
-            className="flex w-56 flex-col gap-0 rounded-xl md:rounded-lg border border-border-strong bg-card px-2 py-3"
+            className="flex w-56 flex-col gap-0 rounded-xl md:rounded-lg border border-border bg-card px-2 py-3"
           >
             <DropdownMenuItem
               asChild
@@ -171,14 +171,14 @@ export const SkillsList = ({
           <Input
             type="text"
             placeholder="Search Skills"
-            className="h-9 rounded-lg border-border-strong pl-9 text-sm placeholder:text-muted-foreground"
+            className="h-9 rounded-lg border-border pl-9 text-sm placeholder:text-muted-foreground"
           />
         </div>
         <SourceFilterSelect value={sourceFilter} onChange={setSourceFilter} />
       </div>
 
       {showWelcome && (
-        <div className="flex flex-col gap-2 rounded-xl md:rounded-lg border border-border-strong bg-card p-2.5">
+        <div className="flex flex-col gap-2 rounded-xl md:rounded-lg border border-border bg-card p-2.5">
           <div className="flex items-start gap-2">
             <p className="flex-1 text-base leading-none text-foreground">Welcome! Try these starter skills.</p>
             <button
@@ -224,7 +224,7 @@ export const SkillsList = ({
                 }}
                 className={`group flex h-[var(--touch-height-default)] w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 text-base transition-colors ${
                   enabled ? 'text-foreground' : 'text-muted-foreground/60'
-                } ${isActive ? 'bg-accent' : 'hover:bg-bg-hover'}`}
+                } ${isActive ? 'bg-accent' : 'hover:bg-accent'}`}
               >
                 <span className="flex min-w-0 flex-1 items-center gap-2.5">
                   <span
@@ -254,7 +254,7 @@ export const SkillsList = ({
                   <DropdownMenuContent
                     align="end"
                     sideOffset={8}
-                    className="flex w-56 flex-col gap-0 rounded-xl md:rounded-lg border border-border-strong bg-card px-2 py-3"
+                    className="flex w-56 flex-col gap-0 rounded-xl md:rounded-lg border border-border bg-card px-2 py-3"
                   >
                     {skill.source === 'local' && (
                       <DropdownMenuItem

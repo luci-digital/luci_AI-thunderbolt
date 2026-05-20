@@ -25,7 +25,7 @@ const ContextMenuContent = ({ className, ...props }: ComponentProps<typeof Conte
       <ContextMenuPrimitive.Content
         data-slot="context-menu-content"
         className={cn(
-          'bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 z-50 min-w-56 origin-(--radix-context-menu-content-transform-origin) overflow-hidden rounded-xl border border-border-strong p-2 shadow-md',
+          'bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 z-50 min-w-56 origin-(--radix-context-menu-content-transform-origin) overflow-hidden rounded-xl border border-border p-2 shadow-md',
           className,
         )}
         {...props}

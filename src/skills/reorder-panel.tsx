@@ -34,7 +34,7 @@ const SortableItem = ({ name }: { name: string }) => {
       {...attributes}
       {...listeners}
       className={`flex h-8 touch-none items-center gap-1.5 rounded-xl px-2 cursor-grab active:cursor-grabbing ${
-        isDragging ? 'opacity-40' : 'hover:bg-bg-hover'
+        isDragging ? 'opacity-40' : 'hover:bg-accent'
       }`}
     >
       <GripVertical size={20} className="shrink-0 text-muted-foreground" />
@@ -73,7 +73,7 @@ export const ReorderPanel = ({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border-strong bg-card px-2 py-3 shadow-md">
+    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-2 py-3 shadow-md">
       <div className="flex flex-col gap-2">
         <div className="flex h-8 items-center gap-1.5 px-2">
           <span className="flex-1 text-base leading-5 text-muted-foreground">Reorder skills</span>
