@@ -21,6 +21,7 @@
 import { defaultSettingCloudUrl } from '@/defaults/settings'
 import { useLocalStorage } from '@/hooks/use-local-storage'
 import { useSettings } from '@/hooks/use-settings'
+import { getAuthToken } from '@/lib/auth-token'
 import { isTauri } from '@/lib/platform'
 import { createContext, useCallback, useContext, useMemo, useRef, type ReactNode } from 'react'
 import { computeEffectiveProxyEnabled, createProxyFetch, type FetchFn } from './proxy-fetch'
@@ -71,6 +72,7 @@ export const ProxyFetchProvider = ({ children, proxyFetch: override, isStandalon
       cloudUrl: cloudUrl.value,
       isStandalone,
       getProxyEnabled: () => effectiveProxyEnabled,
+      getProxyAuthToken: getAuthToken,
     })
   }, [override, cloudUrl.value, effectiveProxyEnabled, isStandalone])
 
