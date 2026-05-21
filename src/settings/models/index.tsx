@@ -28,6 +28,7 @@ import { createModel as createModelDAL, deleteModel, getAllModels, resetModelToD
 import { defaultModels } from '@/defaults/models'
 import { isModelModified } from '@/defaults/utils'
 import { fetch } from '@/lib/fetch'
+import { useProxyFetchGetter } from '@/lib/proxy-fetch-context'
 import type { Model } from '@/types'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation } from '@tanstack/react-query'
@@ -189,6 +190,7 @@ const formSchema = z
 
 export default function ModelsPage() {
   const db = useDatabase()
+  const getProxyFetch = useProxyFetchGetter()
   const [state, dispatch] = useReducer(modelReducer, initialState)
   const {
     isAddDialogOpen,
@@ -324,7 +326,7 @@ export default function ModelsPage() {
         description: null,
         userId: null,
       }
-      const model = await createModel(modelConfigWithDefaults)
+      const model = await createModel(modelConfigWithDefaults, getProxyFetch)
 
       // Test with a minimal prompt - race against timeout
       const { text } = await Promise.race([

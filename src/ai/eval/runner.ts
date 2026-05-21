@@ -11,6 +11,7 @@ import { getDb } from '@/db/database'
 import { isSsoMode } from '@/lib/auth-mode'
 import { getAuthToken } from '@/lib/auth-token'
 import { createAuthenticatedClient } from '@/lib/http'
+import { createProxyFetch } from '@/lib/proxy-fetch'
 import type { SaveMessagesFunction } from '@/types'
 import { v7 as uuidv7 } from 'uuid'
 import { getModelId } from './scenarios'
@@ -137,6 +138,12 @@ export const runScenario = async (scenario: EvalScenario): Promise<EvalResult> =
 
     const httpClient = await getEvalHttpClient()
 
+    // Eval runs in Node, not a browser — no React tree, no `ProxyFetchProvider`.
+    // Build the proxy fetch directly from the same cloudUrl the HTTP client uses.
+    const db = getDb()
+    const { cloudUrl } = await getSettings(db, { cloud_url: 'http://localhost:8000/v1' })
+    const proxyFetch = createProxyFetch({ cloudUrl })
+
     // Call the actual AI pipeline with a timeout
     const response = await Promise.race([
       aiFetchStreamingResponse({
@@ -146,6 +153,7 @@ export const runScenario = async (scenario: EvalScenario): Promise<EvalResult> =
         modeSystemPrompt: mode.systemPrompt ?? undefined,
         modeName: mode.name,
         httpClient,
+        getProxyFetch: () => proxyFetch,
       }),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Scenario timed out')), timeout)),
     ])
