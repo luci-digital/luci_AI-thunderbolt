@@ -3,6 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { setupTestDatabase, teardownTestDatabase } from '@/dal/test-utils'
+import { updateSettings } from '@/dal'
+import { getDb } from '@/db/database'
 import { createClient, type HttpClient } from '@/lib/http'
 import type { HandleError } from '@/types/handle-errors'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test'
@@ -233,5 +235,39 @@ describe('trackError test cases', () => {
       $exception_message: 'Could not create app directory',
       $exception_stack: undefined,
     })
+  })
+})
+
+describe('initPosthog consent gating', () => {
+  beforeEach(() => {
+    resetPosthogClient()
+    mockPosthogInit.mockReset()
+  })
+
+  it('skips SDK init when data_collection is false but still reports telemetryAvailable', async () => {
+    await updateSettings(getDb(), { data_collection: false })
+
+    const result = await initPosthog(createMockHttpClient('test-key'))
+
+    expect(result.success).toBe(true)
+    if (!result.success) {
+      return
+    }
+    expect(result.data).toEqual({ client: null, telemetryAvailable: true })
+    expect(mockPosthogInit).not.toHaveBeenCalled()
+
+    // Restore default so other tests aren't affected.
+    await updateSettings(getDb(), { data_collection: true })
+  })
+
+  it('reports telemetryAvailable: false when no API key is configured', async () => {
+    const result = await initPosthog(createMockHttpClient(''))
+
+    expect(result.success).toBe(true)
+    if (!result.success) {
+      return
+    }
+    expect(result.data).toEqual({ client: null, telemetryAvailable: false })
+    expect(mockPosthogInit).not.toHaveBeenCalled()
   })
 })

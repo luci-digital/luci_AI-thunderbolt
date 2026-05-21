@@ -67,8 +67,10 @@ export const initPosthog = async (httpClient?: HttpClient): Promise<HandleResult
     })
 
     const client = httpClient ?? createClient({ prefixUrl: cloudUrl })
+    // Cap the config fetch so a slow/hung network doesn't block app startup;
+    // a failure here is non-fatal and falls through to the catch below.
     const { public_posthog_api_key: apiKey } = await client
-      .get('posthog/config')
+      .get('posthog/config', { timeout: 3000 })
       .json<{ public_posthog_api_key?: string }>()
 
     if (!apiKey) {
