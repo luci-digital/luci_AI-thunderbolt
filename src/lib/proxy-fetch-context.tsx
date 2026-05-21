@@ -18,11 +18,10 @@
  * `proxy_enabled` toggle changes.
  */
 
-import { defaultSettingCloudUrl } from '@/defaults/settings'
 import { useLocalStorage } from '@/hooks/use-local-storage'
-import { useSettings } from '@/hooks/use-settings'
 import { getAuthToken } from '@/lib/auth-token'
 import { isTauri } from '@/lib/platform'
+import { useLocalSettingsStore } from '@/stores/local-settings-store'
 import { createContext, useCallback, useContext, useMemo, useRef, type ReactNode } from 'react'
 import { computeEffectiveProxyEnabled, createProxyFetch, type FetchFn } from './proxy-fetch'
 
@@ -52,9 +51,10 @@ type ProxyFetchProviderProps = {
  *   - Tauri: respects the user toggle; default OFF means upstream-direct.
  */
 export const ProxyFetchProvider = ({ children, proxyFetch: override, isStandalone }: ProxyFetchProviderProps) => {
-  // `useSettings` applies the default when the stored value is null, so `cloudUrl.value`
-  // is always a non-null string here — no extra `??` chain needed.
-  const { cloudUrl } = useSettings({ cloud_url: defaultSettingCloudUrl.value ?? 'http://localhost:8000/v1' })
+  // `cloudUrl` is sourced from the persisted local-settings-store (seeded from
+  // VITE_THUNDERBOLT_CLOUD_URL with a localhost fallback), so it's always a
+  // non-null string here.
+  const cloudUrl = useLocalSettingsStore((s) => s.cloudUrl)
   const [proxyEnabledStr] = useLocalStorage('proxy_enabled', 'false')
 
   // Web always proxies (toggle is UI-disabled). Tauri respects the stored value.
@@ -69,12 +69,12 @@ export const ProxyFetchProvider = ({ children, proxyFetch: override, isStandalon
       return override
     }
     return createProxyFetch({
-      cloudUrl: cloudUrl.value,
+      cloudUrl,
       isStandalone,
       getProxyEnabled: () => effectiveProxyEnabled,
       getProxyAuthToken: getAuthToken,
     })
-  }, [override, cloudUrl.value, effectiveProxyEnabled, isStandalone])
+  }, [override, cloudUrl, effectiveProxyEnabled, isStandalone])
 
   // Mirror `proxyFetch` into a ref so the stable `getProxyFetch` getter below
   // always returns the *current* fetch. Closures captured by non-React callers

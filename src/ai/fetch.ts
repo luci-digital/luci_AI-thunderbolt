@@ -12,8 +12,9 @@ import {
   isFinalStep,
   shouldRetry,
 } from '@/ai/step-logic'
-import { getModel, getModelProfile, getSettings } from '@/dal'
+import { getIntegrationStatus, getModel, getModelProfile, getSettings } from '@/dal'
 import { getDb } from '@/db/database'
+import { getLocalSetting } from '@/stores/local-settings-store'
 import { isSsoMode } from '@/lib/auth-mode'
 import { getAuthToken } from '@/lib/auth-token'
 import { fetch as baseFetch } from '@/lib/fetch'
@@ -79,11 +80,9 @@ export const createModel = async (modelConfig: Model, getProxyFetch: () => Fetch
   // other providers route through the universal proxy. We resolve the proxy
   // fetch lazily so a settings change between chat creation and this call
   // (e.g. cloudUrl, proxy_enabled toggle) is picked up.
-  const db = getDb()
-  const { cloudUrl } = await getSettings(db, { cloud_url: 'http://localhost:8000/v1' })
-
   switch (modelConfig.provider) {
     case 'thunderbolt': {
+      const cloudUrl = getLocalSetting('cloudUrl')
       const token = getAuthToken() || 'thunderbolt'
       // SSO web flow authenticates via session cookies — the SSO callback is a
       // browser redirect, not an XHR, so `set-auth-token` never reaches the
@@ -203,11 +202,9 @@ export const aiFetchStreamingResponse = async ({
     time_format: '12h',
     currency: 'USD',
     integrations_do_not_ask_again: false,
-    integrations_google_credentials: '',
-    integrations_google_is_enabled: false,
-    integrations_microsoft_credentials: '',
-    integrations_microsoft_is_enabled: false,
   })
+
+  const integrationStatus = await getIntegrationStatus(db)
 
   const model = await getModel(db, modelId)
 
@@ -241,17 +238,15 @@ export const aiFetchStreamingResponse = async ({
   }
 
   // Compute integration status for the model (can return multiple statuses)
-  const getIntegrationStatus = (): string => {
+  const computeIntegrationStatusLabel = (): string => {
     const statuses: string[] = []
 
-    // Check for disabled integrations (connected but turned off)
-    if (settings.integrationsGoogleCredentials && !settings.integrationsGoogleIsEnabled) {
+    if (integrationStatus.googleConnected && !integrationStatus.googleEnabled) {
       statuses.push('GOOGLE_DISABLED')
     }
-    if (settings.integrationsMicrosoftCredentials && !settings.integrationsMicrosoftIsEnabled) {
+    if (integrationStatus.microsoftConnected && !integrationStatus.microsoftEnabled) {
       statuses.push('MICROSOFT_DISABLED')
     }
-    // Check if user chose "Don't ask again"
     if (settings.integrationsDoNotAskAgain) {
       statuses.push('PROMPTS_DISABLED')
     }
@@ -276,7 +271,7 @@ export const aiFetchStreamingResponse = async ({
       timeFormat: settings.timeFormat,
       currency: settings.currency,
     },
-    integrationStatus: getIntegrationStatus(),
+    integrationStatus: computeIntegrationStatusLabel(),
     modeSystemPrompt,
   })
 
