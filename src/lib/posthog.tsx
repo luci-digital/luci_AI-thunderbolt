@@ -138,7 +138,11 @@ type PostHogClientContextValue = {
   setClient: Dispatch<SetStateAction<PostHog | null>>
 }
 
-const PostHogClientContext = createContext<PostHogClientContextValue | null>(null)
+// Safe default so consumers outside <PostHogProvider> no-op instead of crashing.
+const PostHogClientContext = createContext<PostHogClientContextValue>({
+  client: null,
+  setClient: () => {},
+})
 
 /**
  * True when the backend has a PostHog API key configured. Independent of the
@@ -146,19 +150,11 @@ const PostHogClientContext = createContext<PostHogClientContextValue | null>(nul
  */
 export const useTelemetryAvailable = () => useContext(TelemetryAvailableContext)
 
-const usePostHogClientContext = (): PostHogClientContextValue => {
-  const ctx = useContext(PostHogClientContext)
-  if (!ctx) {
-    throw new Error('PostHog hooks must be used inside <PostHogProvider>')
-  }
-  return ctx
-}
-
 /** Loaded PostHog client, or null when the SDK has not been initialized. */
-export const usePosthog = (): PostHog | null => usePostHogClientContext().client
+export const usePosthog = (): PostHog | null => useContext(PostHogClientContext).client
 
 /** Publish a freshly-loaded client into the tree after a lazy opt-in init. */
-export const useSetPosthog = (): Dispatch<SetStateAction<PostHog | null>> => usePostHogClientContext().setClient
+export const useSetPosthog = (): Dispatch<SetStateAction<PostHog | null>> => useContext(PostHogClientContext).setClient
 
 export const PostHogProvider = ({
   children,
