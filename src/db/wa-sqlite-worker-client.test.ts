@@ -219,10 +219,7 @@ describe('WaSQLiteWorkerClient', () => {
       await expect(client!.exec('SELECT * FROM nonexistent', [], 'all')).rejects.toThrow()
     })
 
-    // Pre-existing flake — times out at 20s even with real timers. Was masked
-    // by the fake-timer cascade (THU-538-followup); now visible. Track in a
-    // separate ticket to investigate why the worker hangs on duplicate-PK.
-    it.skip('should reject on constraint violation', async () => {
+    it('should reject on constraint violation', async () => {
       await client!.exec('CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT NOT NULL)', [], 'run')
       await client!.exec('INSERT INTO test (id, name) VALUES (?, ?)', [1, 'Alice'], 'run')
 
@@ -272,9 +269,7 @@ describe('WaSQLiteWorkerClient', () => {
   })
 
   describe('worker lifecycle', () => {
-    // Pre-existing flake — times out at 20s even with real timers. Was masked
-    // by the fake-timer cascade; now visible. Track in a separate ticket.
-    it.skip('should close database cleanly', async () => {
+    it('should close database cleanly', async () => {
       await client!.init(':memory:')
       await client!.exec('CREATE TABLE test (id INTEGER PRIMARY KEY)', [], 'run')
 
