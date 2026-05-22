@@ -49,6 +49,20 @@ class TestDbManager {
       await this.initialize()
     }
 
+    // Defensive: clear any lingering transaction from a previous test whose
+    // afterEach didn't complete (e.g. assertion threw before `cleanup()` ran,
+    // or the cleanup itself errored). Without this, a single bad teardown
+    // leaves a dangling transaction on the singleton PGlite connection, and
+    // the next `BEGIN` either errors or hangs — cascading into every
+    // subsequent test's beforeEach failing with `cleanup is not a function`
+    // (the test's beforeEach times out before assigning `cleanup`, then
+    // afterEach fires anyway and trips on the undefined reference).
+    try {
+      await this.db!.execute(sql`ROLLBACK`)
+    } catch {
+      /* No active transaction — expected on the happy path. */
+    }
+
     // Start a transaction using Drizzle's API
     await this.db!.execute(sql`BEGIN`)
 
