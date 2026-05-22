@@ -175,6 +175,11 @@ describe('Rate Limiting', () => {
   })
 
   describe('disabled rate limiting', () => {
+    // 65 / 105 iterations are intentional — they exceed the enabled-mode
+    // limits (60 inference, 100 pro) so a *partially-broken* rate limiter
+    // (one that wrongly applies a smaller limit) would still fail this test.
+    // On slow CI hardware each `app.handle()` averages ~600ms, so the loop
+    // can take >30s. Override the default 5s per-test timeout accordingly.
     it('should not rate limit when disabled', async () => {
       const disabledSettings: RateLimitSettings = { enabled: false }
       const app = createTestApp(database, disabledSettings, createInferenceRateLimit, 'user-6')
@@ -183,7 +188,7 @@ describe('Rate Limiting', () => {
         const response = await app.handle(new Request('http://localhost/v1/test'))
         expect(response.status).toBe(200)
       }
-    })
+    }, 60_000)
 
     it('should not rate limit pro tier when disabled', async () => {
       const disabledSettings: RateLimitSettings = { enabled: false }
@@ -193,7 +198,7 @@ describe('Rate Limiting', () => {
         const response = await app.handle(new Request('http://localhost/v1/test'))
         expect(response.status).toBe(200)
       }
-    })
+    }, 60_000)
   })
 
   describe('IP-based rate limiting', () => {
