@@ -259,6 +259,11 @@ describe('ThunderboltConnector', () => {
   it('fetchCredentials does not log to console.error for the quiet ANONYMOUS_SYNC_FORBIDDEN 403', async () => {
     setAuthToken(authToken)
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {})
+    // bun's `spyOn` may return the existing mock when console.error has been
+    // spied on (and not restored) earlier in the suite — under --randomize
+    // that happens whenever another file ran first. Clear so we count only
+    // calls that happen inside this test body.
+    errorSpy.mockClear()
     try {
       fetchMock.mockImplementation(() =>
         Promise.resolve(
