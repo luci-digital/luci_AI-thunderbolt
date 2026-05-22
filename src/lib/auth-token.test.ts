@@ -15,54 +15,45 @@ import {
 
 const authTokenKey = 'thunderbolt_auth_token'
 
+/**
+ * Capture the handler that `onAuthTokenChangedInOtherTab` registers, so tests
+ * can invoke it directly with a constructed event rather than relying on the
+ * full `window.addEventListener` / `dispatchEvent` round-trip.
+ *
+ * Why bypass dispatch: when this file runs alongside the rest of the suite
+ * under `--randomize`, some upstream test corrupts happy-dom's event delivery
+ * for the `storage` event (the listener gets registered but `dispatchEvent`
+ * doesn't fire it). Calling the captured handler directly tests the same
+ * impl logic without depending on the unreliable host-environment plumbing.
+ */
+let originalAddEventListener: typeof window.addEventListener
+let capturedStorageHandler: ((event: StorageEvent) => void) | null = null
+
 const fireStorageEvent = (newValue: string | null, oldValue: string | null, key = authTokenKey) => {
-  window.dispatchEvent(
-    new StorageEvent('storage', {
-      key,
-      newValue,
-      oldValue,
-      storageArea: localStorage,
-    }),
-  )
+  if (!capturedStorageHandler) {
+    throw new Error('No storage handler captured — was onAuthTokenChangedInOtherTab called?')
+  }
+  capturedStorageHandler({
+    key,
+    newValue,
+    oldValue,
+    storageArea: localStorage,
+  } as StorageEvent)
 }
 
-/**
- * Install a known-good localStorage on every test.
- *
- * `onAuthTokenChangedInOtherTab`'s handler short-circuits on
- * `event.storageArea !== localStorage` (reference equality). If an earlier
- * test in the same `bun test` run has replaced `globalThis.localStorage`
- * with a different object and not restored it, our `fireStorageEvent`'s
- * `storageArea: localStorage` would refer to one object while the impl's
- * `localStorage` (resolved from globalThis at handler-call time) would
- * refer to the previous one — comparison fails, listener never fires.
- *
- * Resetting per-test isolates this file from any upstream pollution.
- */
 beforeEach(() => {
-  const store: Record<string, string> = {}
-  Object.defineProperty(globalThis, 'localStorage', {
-    value: {
-      getItem: (k: string) => store[k] ?? null,
-      setItem: (k: string, v: string) => {
-        store[k] = v
-      },
-      removeItem: (k: string) => {
-        delete store[k]
-      },
-      clear: () => {
-        for (const k of Object.keys(store)) {
-          delete store[k]
-        }
-      },
-      key: (i: number) => Object.keys(store)[i] ?? null,
-      get length() {
-        return Object.keys(store).length
-      },
-    },
-    writable: true,
-    configurable: true,
-  })
+  capturedStorageHandler = null
+  originalAddEventListener = window.addEventListener
+  window.addEventListener = ((
+    event: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions,
+  ) => {
+    if (event === 'storage' && typeof listener === 'function') {
+      capturedStorageHandler = listener as (event: StorageEvent) => void
+    }
+    return originalAddEventListener.call(window, event, listener, options)
+  }) as typeof window.addEventListener
   clearAuthToken()
   clearDeviceId()
 })
