@@ -107,7 +107,17 @@ const existingJest = (globalThis as any).jest || {}
 }
 
 beforeEach(() => {
-  globalClock = installFakeTimers()
+  // Defensive: if a prior test's afterEach didn't run to completion (e.g. its
+  // own async afterEach hung or threw), fake timers can be left installed.
+  // sinon's install() throws on re-install — catch and reset cleanly so we
+  // don't cascade a single bad teardown into every subsequent test failing.
+  try {
+    globalClock = installFakeTimers()
+  } catch {
+    // Already installed from prior leakage. Best effort: keep going without
+    // a fresh clock; tests using getClock() will surface the issue locally.
+    globalClock = null
+  }
   // Ensure console is suppressed for each test
   suppressConsole()
   // Clear memoized values to prevent pollution between tests
@@ -116,13 +126,47 @@ beforeEach(() => {
 
 afterEach(() => {
   if (globalClock) {
-    // Clear all pending timers before uninstalling to prevent pollution
-    globalClock.reset()
-    globalClock.uninstall()
-    globalClock = null
+    // Defensive — guard each step so one failure doesn't skip later cleanup.
+    try {
+      globalClock.reset()
+    } catch {
+      /* clock state was corrupted; uninstall anyway */
+    }
+    try {
+      globalClock.uninstall()
+    } catch {
+      /* uninstall failed (e.g. already uninstalled); fall through */
+    }
   }
+  // ALWAYS null the reference, even if the above threw, so the next test's
+  // beforeEach gets a clean slate.
+  globalClock = null
   cleanup()
 })
+
+/**
+ * Opt out of the global fake-timer setup for a test (or test file) that
+ * genuinely needs real timers — e.g. tests that spawn Web Workers and wait
+ * for postMessage scheduling, which happy-dom routes through real setTimeout.
+ *
+ * Call from `beforeEach`. The global `afterEach` will be a no-op for clock
+ * state (already nulled), so no further cleanup is needed.
+ */
+export const useRealTimers = (): void => {
+  if (globalClock) {
+    try {
+      globalClock.reset()
+    } catch {
+      /* see afterEach */
+    }
+    try {
+      globalClock.uninstall()
+    } catch {
+      /* see afterEach */
+    }
+    globalClock = null
+  }
+}
 
 /**
  * Get the current global fake clock instance for the test.
