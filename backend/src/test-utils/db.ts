@@ -49,24 +49,15 @@ class TestDbManager {
       await this.initialize()
     }
 
-    // Defensively roll back before opening this test's transaction. All tests
-    // share one PGlite connection (PGlite is single-connection WASM Postgres),
-    // so if a prior test leaked an open transaction — it threw before cleanup,
-    // or a background query opened one — this BEGIN would nest as a no-op and
-    // the two tests would share a single transaction. The leading ROLLBACK is a
-    // harmless notice when the connection is already clean and resets it when
-    // it isn't, guaranteeing each test starts at a true top-level transaction.
-    await this.db!.execute(sql`ROLLBACK`).catch(() => {})
+    // Start a transaction using Drizzle's API
     await this.db!.execute(sql`BEGIN`)
 
     return {
       client: this.client!,
       db: this.db!,
-      // Cleanup rolls back this test's transaction. Swallow errors so a
-      // connection already reset by the defensive ROLLBACK above (or by a
-      // teardown race) never fails the test in afterEach.
+      // Cleanup function to roll back the transaction
       cleanup: async () => {
-        await this.db!.execute(sql`ROLLBACK`).catch(() => {})
+        await this.db!.execute(sql`ROLLBACK`)
       },
     }
   }
