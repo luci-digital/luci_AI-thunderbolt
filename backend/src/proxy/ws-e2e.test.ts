@@ -150,12 +150,15 @@ describe('Universal proxy WebSocket relay /v1/proxy/ws — e2e', () => {
       buildProtocols('wss://upstream.test/path', handle.bearerToken, ['acp.v1']),
     )
 
-    const messages: string[] = []
-    // Use onmessage rather than addEventListener: in Bun's same-process WS the
-    // addEventListener path has been observed to drop late-bound 'message' events.
-    client.onmessage = (e: MessageEvent) => {
-      messages.push(typeof e.data === 'string' ? e.data : '')
-    }
+    // Await the echo frame's onmessage callback directly — no fixed wait, no
+    // polling. The assertion is "the echo arrived", not "...within N ms", so
+    // event-loop scheduling latency under load can't starve it into failing.
+    // The per-test timeout below is only a failsafe for a genuine hang.
+    const echoed = new Promise<string>((resolve) => {
+      client.onmessage = (e: MessageEvent) => {
+        if (e.data === 'echo: hello') resolve(e.data as string)
+      }
+    })
 
     await new Promise<void>((resolve, reject) => {
       client.addEventListener('open', () => resolve())
@@ -163,10 +166,9 @@ describe('Universal proxy WebSocket relay /v1/proxy/ws — e2e', () => {
     })
 
     client.send('hello')
-    await new Promise((r) => setTimeout(r, 100))
-    expect(messages).toContain('echo: hello')
+    expect(await echoed).toBe('echo: hello')
     client.close()
-  })
+  }, 15_000)
 
   it('upstream close code propagates through the relay (server-side observation)', async () => {
     // We observe the close on the proxy's relay (where the upstream connection
@@ -178,12 +180,16 @@ describe('Universal proxy WebSocket relay /v1/proxy/ws — e2e', () => {
     })
     upstreams.push(upstream)
 
-    const observed: { code: number | null } = { code: null }
+    // Await the relay's upstream-facing socket onclose directly (the relay
+    // logic is the contract). Awaiting the event rather than polling a deadline
+    // makes the test immune to event-loop scheduling latency under load.
+    let resolveClose!: (code: number) => void
+    const upstreamClosed = new Promise<number>((resolve) => {
+      resolveClose = resolve
+    })
     const upstreamFactory = (_url: string, protocols?: string[]): WebSocket => {
       const ws = new WebSocket(`ws://127.0.0.1:${upstream.port}`, protocols)
-      ws.onclose = (event: CloseEvent) => {
-        observed.code = event.code
-      }
+      ws.onclose = (event: CloseEvent) => resolveClose(event.code)
       return ws
     }
 
@@ -195,21 +201,13 @@ describe('Universal proxy WebSocket relay /v1/proxy/ws — e2e', () => {
       buildProtocols('wss://upstream.test/', handle.bearerToken, ['acp.v1']),
     )
     client.onopen = () => client.send('please close')
-    // Poll for the upstream-side close — Bun's same-process WS doesn't reliably
-    // surface late-binding events on the downstream client, so we observe at
-    // the upstream connection (where the proxy's relay sits) instead.
-    let polls = 0
-    while (observed.code === null && polls < 50) {
-      await new Promise((r) => setTimeout(r, 50))
-      polls++
-    }
-    expect(observed.code).toBe(4321)
+    expect(await upstreamClosed).toBe(4321)
     try {
       client.close()
     } catch {
       /* may already be closed */
     }
-  })
+  }, 15_000)
 
   it('rejects upgrade with HTTP 400 when subprotocol is missing tbproxy.target.*', async () => {
     const upstream = await startUpstreamServer()
