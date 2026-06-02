@@ -218,3 +218,11 @@ jobs:
       - name: Test backend
         run: |
           bun run test:backend:5x
+
+      # Same-process WebSocket e2e tests (proxy /v1/proxy/ws, haystack /v1/haystack/ws)
+      # are excluded from the 5x randomized run above — Bun's in-process WS event
+      # delivery starves under that concurrency and they flake. Run them once,
+      # serially, where they're reliable. See THU CI-flake investigation.
+      - name: Test backend (WebSocket e2e, serial)
+        run: |
+          bun run test:backend:ws
