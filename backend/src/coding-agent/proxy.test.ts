@@ -181,4 +181,26 @@ describe('CodingAgentProxy', () => {
     up.setThrowOnSend(true)
     expect(() => proxy.handleClientMessage('x')).not.toThrow()
   })
+
+  for (const reserved of [1005, 1006, 1015]) {
+    it(`substitutes reserved abnormal close code ${reserved} with 1011`, () => {
+      const { up, closes } = makeProxy()
+      up.emit('close', { code: reserved })
+      expect(closes[0].code).toBe(1011)
+    })
+  }
+
+  it('passes non-reserved upstream close codes through unchanged', () => {
+    const { up, closes } = makeProxy()
+    up.emit('close', { code: 4567 }) // app-range code survives
+    expect(closes[0].code).toBe(4567)
+  })
+
+  it('overflows on the byte budget (queueBytes), counting Buffer.byteLength', () => {
+    const { proxy, closes } = makeProxy({ queueMessages: 100, queueBytes: 4 })
+    proxy.handleClientMessage('abc') // 3 bytes — within budget
+    expect(closes).toEqual([])
+    proxy.handleClientMessage('de') // 3 + 2 = 5 > 4 — overflow
+    expect(closes).toEqual([{ code: 4008, reason: 'pre-connect queue overflow' }])
+  })
 })

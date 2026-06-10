@@ -3,142 +3,207 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 /**
- * Auth-gate + provisioning close-code tests for the coding-agent WS endpoint.
- * Spins up Elysia on an ephemeral port (mirrors haystack/routes.test.ts) and
- * connects with Bun's WebSocket. The broker is stubbed via the injected `fetchFn`
- * so we can drive the provision outcome; all asserted paths close BEFORE the
- * upstream proxy is constructed (no workspace shim needed). The happy path
- * (proxy bridging) is covered by proxy.test.ts.
+ * Unit tests for the coding-agent WS handlers. They call the exported
+ * handleCodingAgent{Open,Message,Close} functions directly against a fake `ws` +
+ * injected auth/provision/upstream — no bound port, no DB-backed app, exact close
+ * codes. (The real WS-upgrade machinery is exercised repo-wide by
+ * haystack/routes.test.ts; spinning a server per close-code here only added CI
+ * wall-clock under the 5x backend run.)
  *
  * Close-code contract: 4001 unauthorized, 4002 github-not-connected, 4003
  * provisioning failed / not configured.
  */
 
-import { clearSettingsCache } from '@/config/settings'
-import { getSharedIsolatedTestDb, type IsolatedTestDb } from '@/test-utils/db'
-import { createTestApp } from '@/test-utils/e2e'
+import type { Auth } from '@/auth/elysia-plugin'
+import { createTestSettings } from '@/test-utils/settings'
 import { encodeWsBearer } from '@shared/ws-bearer'
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
+import type { ProvisionResult } from './provision'
+import type { UpstreamSocket } from './proxy'
+import {
+  createCodingAgentRoutes,
+  handleCodingAgentClose,
+  handleCodingAgentMessage,
+  handleCodingAgentOpen,
+  type CodingAgentOpenCtx,
+} from './routes'
 
-type RunningApp = {
-  listen: (port: { port: number; hostname?: string }, callback?: () => void) => unknown
-  stop: (closeActiveConnections?: boolean) => Promise<void> | void
-  server: { port: number } | null
-}
+const noopLog = { info() {}, warn() {}, error() {}, debug() {} } as unknown as CodingAgentOpenCtx['log']
+const userAuth = { api: { getSession: async () => ({ user: { id: 'u1', isAnonymous: false } }) } } as unknown as Auth
+const fakeUpstream = (): UpstreamSocket => ({ readyState: 0, send() {}, close() {}, addEventListener() {} })
 
-const startApp = async (app: RunningApp): Promise<number> => {
-  await new Promise<void>((resolve) => {
-    app.listen({ port: 0, hostname: '127.0.0.1' }, () => resolve())
+const bearerHeader = `thunderbolt.v1, thunderbolt.bearer.${encodeWsBearer('tok')}`
+
+const makeWs = (opts: { data?: Record<string, unknown>; subprotocol?: string } = {}) => {
+  const request = new Request('http://localhost/v1/coding-agent/ws', {
+    headers: { 'sec-websocket-protocol': opts.subprotocol ?? bearerHeader },
   })
-  return app.server!.port
-}
-
-const stopApp = async (app: RunningApp): Promise<void> => {
-  await Promise.race([Promise.resolve(app.stop(true)), new Promise((r) => setTimeout(r, 500))])
-}
-
-const observeWsTermination = (ws: WebSocket): Promise<{ code: number }> =>
-  new Promise((resolve) => {
-    let settled = false
-    const finish = (code: number) => {
-      if (!settled) {
-        settled = true
-        resolve({ code })
-      }
-    }
-    ws.addEventListener('close', (event: CloseEvent) => finish(event.code))
-    ws.addEventListener('error', () => finish(0))
-  })
-
-const bearerProtocols = (bearerToken: string): string[] => [
-  'thunderbolt.v1',
-  `thunderbolt.bearer.${encodeWsBearer(bearerToken)}`,
-]
-
-/** Stub broker: answer /github/provision with `status`; pass anything else through. */
-const brokerFetch = (status: number): typeof fetch =>
-  (async (url: string | URL | Request, init?: RequestInit) => {
-    if (String(url).includes('/github/provision')) {
-      return new Response('', { status })
-    }
-    return globalThis.fetch(url as string, init)
-  }) as unknown as typeof fetch
-
-describe('WS /v1/coding-agent/ws', () => {
-  const cleanups: Array<() => Promise<void>> = []
-  let iso: IsolatedTestDb
-  const originalWs = process.env.CODING_AGENT_WORKSPACE_WS_URL
-  const originalBroker = process.env.CODING_AGENT_BROKER_URL
-  const originalToken = process.env.CODING_AGENT_SERVICE_TOKEN
-
-  beforeAll(async () => {
-    iso = await getSharedIsolatedTestDb()
-  })
-
-  beforeEach(() => {
-    process.env.CODING_AGENT_WORKSPACE_WS_URL = 'wss://workspace.test/?token=shim'
-    process.env.CODING_AGENT_BROKER_URL = 'https://broker.test'
-    process.env.CODING_AGENT_SERVICE_TOKEN = 'svc-token'
-    clearSettingsCache()
-  })
-
-  const restore = (key: string, value: string | undefined) => {
-    if (value === undefined) {
-      delete process.env[key]
-    } else {
-      process.env[key] = value
-    }
+  const data: Record<string, unknown> = { request, ...opts.data }
+  const sends: string[] = []
+  const closes: { code?: number; reason?: string }[] = []
+  const ws = {
+    data,
+    send: (p: string) => sends.push(p),
+    close: (code?: number, reason?: string) => closes.push({ code, reason }),
   }
+  return { ws, data, sends, closes }
+}
 
-  afterEach(async () => {
-    for (const cleanup of cleanups.splice(0)) {
-      await cleanup()
-    }
-    restore('CODING_AGENT_WORKSPACE_WS_URL', originalWs)
-    restore('CODING_AGENT_BROKER_URL', originalBroker)
-    restore('CODING_AGENT_SERVICE_TOKEN', originalToken)
-    clearSettingsCache()
-  })
+const ctx = (over: Partial<CodingAgentOpenCtx> = {}): CodingAgentOpenCtx => ({
+  auth: userAuth,
+  settings: createTestSettings({
+    codingAgentWorkspaceWsUrl: 'wss://ws.test/?t=x',
+    codingAgentBrokerUrl: 'https://broker.test',
+    codingAgentServiceToken: 'svc',
+  }),
+  fetchFn: (async () => new Response('', { status: 200 })) as unknown as typeof fetch,
+  log: noopLog,
+  provision: async () => ({ status: 'ok' }),
+  createUpstream: fakeUpstream,
+  ...over,
+})
 
-  const launch = async (fetchFn?: typeof fetch) => {
-    const handle = await createTestApp({ database: iso.db, fetchFn })
-    const port = await startApp(handle.app as unknown as RunningApp)
-    cleanups.push(async () => {
-      await stopApp(handle.app as unknown as RunningApp)
-      await handle.cleanup()
-    })
-    return { port, bearerToken: handle.bearerToken }
-  }
-
+describe('handleCodingAgentOpen — auth', () => {
   it('closes 4001 when no bearer subprotocol is offered', async () => {
-    const { port } = await launch()
-    const client = new WebSocket(`ws://127.0.0.1:${port}/v1/coding-agent/ws`, ['thunderbolt.v1'])
-    expect([4001, 1006]).toContain((await observeWsTermination(client)).code)
+    const { ws, closes } = makeWs({ subprotocol: 'thunderbolt.v1' })
+    await handleCodingAgentOpen(ws, ctx())
+    expect(closes).toEqual([{ code: 4001, reason: 'unauthorized' }])
   })
 
-  it('closes 4001 when the bearer token is garbage', async () => {
-    const { port } = await launch()
-    const client = new WebSocket(`ws://127.0.0.1:${port}/v1/coding-agent/ws`, bearerProtocols('not-a-real.token'))
-    expect([4001, 1006]).toContain((await observeWsTermination(client)).code)
+  it('closes 4001 when the session is unauthenticated', async () => {
+    const noUserAuth = { api: { getSession: async () => null } } as unknown as Auth
+    const { ws, closes } = makeWs()
+    await handleCodingAgentOpen(ws, ctx({ auth: noUserAuth }))
+    expect(closes).toEqual([{ code: 4001, reason: 'unauthorized' }])
+  })
+})
+
+describe('handleCodingAgentOpen — provisioning', () => {
+  it("provision 'ok' constructs the proxy and leaves the socket open", async () => {
+    const { ws, data, closes } = makeWs()
+    await handleCodingAgentOpen(ws, ctx({ provision: async () => ({ status: 'ok' }) }))
+    expect(data.proxy).toBeDefined()
+    expect(closes).toEqual([])
+    handleCodingAgentClose(ws) // dispose → clears the proxy's connect timer
   })
 
-  it('closes 4002 (github not connected) when the broker returns 409', async () => {
-    const { port, bearerToken } = await launch(brokerFetch(409))
-    const client = new WebSocket(`ws://127.0.0.1:${port}/v1/coding-agent/ws`, bearerProtocols(bearerToken))
-    expect([4002, 1006]).toContain((await observeWsTermination(client)).code)
+  it("provision 'disabled' proceeds read-only without closing", async () => {
+    const { ws, data, closes } = makeWs()
+    await handleCodingAgentOpen(ws, ctx({ provision: async () => ({ status: 'disabled' }) }))
+    expect(data.proxy).toBeDefined()
+    expect(closes).toEqual([])
+    handleCodingAgentClose(ws)
   })
 
-  it('closes 4003 (provisioning failed) when the broker returns 500', async () => {
-    const { port, bearerToken } = await launch(brokerFetch(500))
-    const client = new WebSocket(`ws://127.0.0.1:${port}/v1/coding-agent/ws`, bearerProtocols(bearerToken))
-    expect([4003, 1006]).toContain((await observeWsTermination(client)).code)
+  it("provision 'not_connected' closes 4002", async () => {
+    const { ws, data, closes } = makeWs()
+    await handleCodingAgentOpen(ws, ctx({ provision: async () => ({ status: 'not_connected' }) }))
+    expect(closes).toEqual([{ code: 4002, reason: 'github not connected' }])
+    expect(data.proxy).toBeUndefined()
   })
 
-  it('closes 4003 (not configured) when the workspace endpoint is unset', async () => {
-    process.env.CODING_AGENT_WORKSPACE_WS_URL = ''
-    clearSettingsCache()
-    const { port, bearerToken } = await launch(brokerFetch(200))
-    const client = new WebSocket(`ws://127.0.0.1:${port}/v1/coding-agent/ws`, bearerProtocols(bearerToken))
-    expect([4003, 1006]).toContain((await observeWsTermination(client)).code)
+  it('a provisioning throw closes 4003', async () => {
+    const { ws, data, closes } = makeWs()
+    await handleCodingAgentOpen(
+      ws,
+      ctx({
+        provision: async () => {
+          throw new Error('broker down')
+        },
+      }),
+    )
+    expect(closes).toEqual([{ code: 4003, reason: 'provisioning failed' }])
+    expect(data.proxy).toBeUndefined()
+  })
+
+  it('an out-of-union provision status hits the exhaustive default and closes 4003', async () => {
+    const { ws, closes } = makeWs()
+    await handleCodingAgentOpen(ws, ctx({ provision: async () => ({ status: 'bogus' }) as unknown as ProvisionResult }))
+    expect(closes).toEqual([{ code: 4003, reason: 'provisioning failed' }])
+  })
+
+  it('closes 4003 (not configured) when the workspace endpoint is empty', async () => {
+    const { ws, closes } = makeWs()
+    await handleCodingAgentOpen(ws, ctx({ settings: createTestSettings({ codingAgentWorkspaceWsUrl: '' }) }))
+    expect(closes).toEqual([{ code: 4003, reason: 'coding agent not configured' }])
+  })
+})
+
+describe('handleCodingAgentOpen — upstream', () => {
+  it('client disconnect during open aborts before constructing the upstream', async () => {
+    let createUpstreamCalled = false
+    const { ws, data, closes } = makeWs({ data: { clientClosed: true } })
+    await handleCodingAgentOpen(
+      ws,
+      ctx({
+        createUpstream: () => {
+          createUpstreamCalled = true
+          return fakeUpstream()
+        },
+      }),
+    )
+    expect(createUpstreamCalled).toBe(false)
+    expect(data.proxy).toBeUndefined()
+    expect(closes).toEqual([])
+  })
+
+  it('upstream construction failure closes 4003', async () => {
+    const { ws, data, closes } = makeWs()
+    await handleCodingAgentOpen(
+      ws,
+      ctx({
+        createUpstream: () => {
+          throw new Error('bad url')
+        },
+      }),
+    )
+    expect(closes).toEqual([{ code: 4003, reason: 'upstream connect failed' }])
+    expect(data.proxy).toBeUndefined()
+  })
+})
+
+describe('handleCodingAgentMessage / handleCodingAgentClose', () => {
+  it('message: no-op when no proxy is attached', () => {
+    const { ws } = makeWs()
+    expect(() => handleCodingAgentMessage(ws, '{}')).not.toThrow()
+  })
+
+  it('message: forwards string frames verbatim and JSON-encodes object frames', () => {
+    const received: string[] = []
+    const { ws, data } = makeWs()
+    data.proxy = { handleClientMessage: (f: string) => received.push(f) }
+    handleCodingAgentMessage(ws, 'raw-string')
+    handleCodingAgentMessage(ws, { a: 1 })
+    expect(received).toEqual(['raw-string', '{"a":1}'])
+  })
+
+  it('close: disposes the proxy, marks clientClosed, clears the slot', () => {
+    let disposed = 0
+    const { ws, data } = makeWs()
+    data.proxy = { dispose: () => (disposed += 1) }
+    handleCodingAgentClose(ws)
+    expect(disposed).toBe(1)
+    expect(data.clientClosed).toBe(true)
+    expect(data.proxy).toBeUndefined()
+  })
+
+  it('close: no-op when no proxy is attached', () => {
+    const { ws } = makeWs()
+    expect(() => handleCodingAgentClose(ws)).not.toThrow()
+  })
+})
+
+describe('createCodingAgentRoutes', () => {
+  it('mounts the route and exercises the single-shared-workspace WARN branch (broker + workspace set)', () => {
+    const settings = createTestSettings({
+      codingAgentWorkspaceWsUrl: 'wss://ws.test',
+      codingAgentBrokerUrl: 'https://broker.test',
+      codingAgentServiceToken: 'svc',
+    })
+    expect(createCodingAgentRoutes(settings, userAuth)).toBeDefined()
+  })
+
+  it('mounts the route without the WARN branch when the coding agent is unconfigured', () => {
+    expect(createCodingAgentRoutes(createTestSettings(), userAuth)).toBeDefined()
   })
 })
