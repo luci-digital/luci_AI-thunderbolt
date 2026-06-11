@@ -82,6 +82,7 @@ export default function AgentsSettingsPage({ isStandalone }: AgentsSettingsPageP
       transport: payload.transport,
       url: payload.url,
       description: payload.description,
+      cwd: payload.cwd,
       enabled: 1,
       userId: currentUserId,
     })

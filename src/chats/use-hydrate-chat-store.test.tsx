@@ -411,6 +411,7 @@ describe('useHydrateChatStore', () => {
         url: 'wss://example.test',
         description: null,
         icon: null,
+        cwd: null,
         isSystem: 1 as const,
         enabled: 1 as const,
         deletedAt: null,

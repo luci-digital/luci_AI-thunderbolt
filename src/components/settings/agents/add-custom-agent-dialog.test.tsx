@@ -146,6 +146,7 @@ describe('AddCustomAgentDialog', () => {
       name: 'My Agent',
       url: 'wss://example.com/ws',
       description: 'Demo',
+      cwd: null,
       transport: 'websocket',
     })
     // Closes dialog on success.

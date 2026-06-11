@@ -19,6 +19,7 @@ export const builtInAgent: Agent = {
   url: null,
   description: 'Built-in AI assistant',
   icon: 'zap',
+  cwd: null,
   isSystem: 1,
   enabled: 1,
   deletedAt: null,

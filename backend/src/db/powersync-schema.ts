@@ -279,6 +279,10 @@ export const agentsTable = powersyncSchema.table(
     url: text('url').notNull(),
     description: text('description'),
     icon: text('icon'),
+    // Optional working directory for the ACP session (`session/new`/`session/load`
+    // cwd). Lets a remote-acp agent with a real filesystem run in a valid dir
+    // instead of the hardcoded '/'. Null = default ('/').
+    cwd: text('cwd'),
     enabled: integer('enabled').default(1).notNull(),
     deletedAt: timestamp('deleted_at'),
   },

@@ -35,6 +35,7 @@ const customRowToAgent = (row: AgentCustomRow): Agent => ({
   url: row.url,
   description: row.description,
   icon: row.icon,
+  cwd: row.cwd,
   isSystem: 0,
   enabled: row.enabled === 1 ? 1 : 0,
   deletedAt: row.deletedAt,
@@ -50,6 +51,7 @@ const systemRowToAgent = (row: AgentSystemRow): Agent => ({
   url: row.url,
   description: row.description,
   icon: row.icon,
+  cwd: null,
   isSystem: 1,
   enabled: 1,
   deletedAt: null,
@@ -114,6 +116,7 @@ export type CreateAgentInput = {
   url: string
   description?: string | null
   icon?: string | null
+  cwd?: string | null
   enabled?: 0 | 1
   userId: string
 }
@@ -129,6 +132,7 @@ export const createAgent = async (db: AnyDrizzleDatabase, data: CreateAgentInput
     url: data.url,
     description: data.description ?? null,
     icon: data.icon ?? null,
+    cwd: data.cwd ?? null,
     enabled: data.enabled ?? 1,
     userId: data.userId,
   })
@@ -137,7 +141,7 @@ export const createAgent = async (db: AnyDrizzleDatabase, data: CreateAgentInput
 /** Fields patchable via `updateAgent`. `id`/`userId`/`deletedAt` are managed
  *  internally — callers cannot rewrite them through this entry point. */
 export type UpdateAgentPatch = Partial<
-  Pick<CreateAgentInput, 'name' | 'type' | 'transport' | 'url' | 'description' | 'icon' | 'enabled'>
+  Pick<CreateAgentInput, 'name' | 'type' | 'transport' | 'url' | 'description' | 'icon' | 'cwd' | 'enabled'>
 >
 
 /** Patch fields whose change invalidates a warm ACP connection — the wire

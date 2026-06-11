@@ -282,6 +282,7 @@ export const agentsTable = sqliteTable(
     url: text('url').notNull(),
     description: text('description'),
     icon: text('icon'),
+    cwd: text('cwd'),
     enabled: integer('enabled').default(1).notNull(),
     deletedAt: text('deleted_at'),
     userId: text('user_id').notNull(),

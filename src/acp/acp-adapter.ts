@@ -56,9 +56,12 @@ const protocolVersion = 1
  *  and is torn down via the transport instead. */
 const defaultHandshakeTimeoutMs = 30_000
 /** ACP requires `cwd` on session/new + session/load. Browser/web agents have
- *  no real filesystem; we send a placeholder. The Haystack managed adapter
- *  and most remote agents ignore the field. */
-const sessionCwd = '/'
+ *  no real filesystem, so this placeholder is the fallback. A `remote-acp`
+ *  agent with a real filesystem (e.g. a containerized Cline) can override it
+ *  via its configured `cwd` — see `agent.cwd` at the session calls. (Some
+ *  agents reject `'/'`: they derive a workspace name from the cwd basename,
+ *  which is empty for `'/'`.) */
+const fallbackSessionCwd = '/'
 const clientName = 'thunderbolt'
 const clientVersion = '0.2.0'
 
@@ -263,17 +266,18 @@ export const connectAcpAdapter = async (
     if (existing) {
       return existing
     }
+    const cwd = agent.cwd ?? fallbackSessionCwd
     const resolve = (async (): Promise<string> => {
       if (context.acpSessionId && capabilities.loadSession) {
         await withHandshakeGuard(
-          connection.loadSession({ sessionId: context.acpSessionId, cwd: sessionCwd, mcpServers: [] }),
+          connection.loadSession({ sessionId: context.acpSessionId, cwd, mcpServers: [] }),
           transport.closed,
           handshakeTimeoutMs,
         )
         return context.acpSessionId
       }
       const newSession = await withHandshakeGuard(
-        connection.newSession({ cwd: sessionCwd, mcpServers: [] }),
+        connection.newSession({ cwd, mcpServers: [] }),
         transport.closed,
         handshakeTimeoutMs,
       )

@@ -59,6 +59,7 @@ export type AddCustomAgentPayload = {
   name: string
   url: string
   description: string | null
+  cwd: string | null
   transport: 'websocket'
 }
 
@@ -82,6 +83,7 @@ type AgentDialogState = {
   name: string
   url: string
   description: string
+  cwd: string
   submitting: boolean
   isTestingConnection: boolean
   connectionStatus: 'idle' | 'success' | 'error'
@@ -92,6 +94,7 @@ type AgentDialogAction =
   | { type: 'SET_NAME'; value: string }
   | { type: 'SET_URL'; value: string }
   | { type: 'SET_DESCRIPTION'; value: string }
+  | { type: 'SET_CWD'; value: string }
   | { type: 'START_SUBMIT' }
   | { type: 'END_SUBMIT' }
   | { type: 'START_CONNECTION_TEST' }
@@ -103,6 +106,7 @@ const initialState: AgentDialogState = {
   name: '',
   url: '',
   description: '',
+  cwd: '',
   submitting: false,
   isTestingConnection: false,
   connectionStatus: 'idle',
@@ -119,6 +123,8 @@ const agentDialogReducer = (state: AgentDialogState, action: AgentDialogAction):
       return { ...state, url: action.value, connectionStatus: 'idle', connectionError: null }
     case 'SET_DESCRIPTION':
       return { ...state, description: action.value }
+    case 'SET_CWD':
+      return { ...state, cwd: action.value }
     case 'START_SUBMIT':
       return { ...state, submitting: true }
     case 'END_SUBMIT':
@@ -148,6 +154,7 @@ export const AddCustomAgentDialog = ({
   const trimmedName = state.name.trim()
   const trimmedUrl = state.url.trim()
   const trimmedDescription = state.description.trim()
+  const trimmedCwd = state.cwd.trim()
   const validation = validateAgentUrl(trimmedUrl, isIos)
   // Surface an invalid-URL error at render time (once the field is non-empty)
   // so the user sees why Test Connection is unavailable and Add stays gated.
@@ -187,6 +194,7 @@ export const AddCustomAgentDialog = ({
       name: trimmedName,
       url: trimmedUrl,
       description: trimmedDescription.length > 0 ? trimmedDescription : null,
+      cwd: trimmedCwd.length > 0 ? trimmedCwd : null,
       transport: validation.transport,
     })
     dispatch({ type: 'END_SUBMIT' })
@@ -236,6 +244,19 @@ export const AddCustomAgentDialog = ({
               onChange={(e) => dispatch({ type: 'SET_DESCRIPTION', value: e.target.value })}
               autoComplete="off"
             />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="agent-cwd">Working Directory</Label>
+            <Input
+              id="agent-cwd"
+              placeholder="/"
+              value={state.cwd}
+              onChange={(e) => dispatch({ type: 'SET_CWD', value: e.target.value })}
+              autoComplete="off"
+            />
+            <p className="text-[length:var(--font-size-xs)] text-muted-foreground">
+              Optional. Working directory for the agent's session (default: /)
+            </p>
           </div>
           {canTestConnection && (
             <Button

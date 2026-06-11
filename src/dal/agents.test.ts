@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+import { eq } from 'drizzle-orm'
 import { getDb } from '@/db/database'
 import { agentsSystemTable, agentsTable } from '@/db/tables'
 import { builtInAgent } from '@/defaults/agents'
@@ -105,6 +106,31 @@ describe('agents DAL', () => {
       })
       const row = await getDb().select().from(agentsTable).get()
       expect(row?.enabled).toBe(1)
+    })
+
+    it('persists cwd when supplied and defaults it to null', async () => {
+      const db = getDb()
+      await createAgent(db, {
+        id: 'agent-cwd',
+        name: 'With cwd',
+        type: 'remote-acp',
+        transport: 'websocket',
+        url: 'wss://example.test/ws',
+        cwd: '/workspace',
+        userId: 'u1',
+      })
+      await createAgent(db, {
+        id: 'agent-nocwd',
+        name: 'No cwd',
+        type: 'remote-acp',
+        transport: 'websocket',
+        url: 'wss://example.test/ws2',
+        userId: 'u1',
+      })
+      const withCwd = await db.select().from(agentsTable).where(eq(agentsTable.id, 'agent-cwd')).get()
+      const noCwd = await db.select().from(agentsTable).where(eq(agentsTable.id, 'agent-nocwd')).get()
+      expect(withCwd?.cwd).toBe('/workspace')
+      expect(noCwd?.cwd).toBeNull()
     })
   })
 
@@ -225,6 +251,7 @@ describe('agents DAL', () => {
       url: `wss://${id}`,
       description: null,
       icon: null,
+      cwd: null,
       isSystem: 0,
       enabled: 1,
       deletedAt: null,
@@ -238,6 +265,7 @@ describe('agents DAL', () => {
       url: `wss://${id}`,
       description: null,
       icon: null,
+      cwd: null,
       isSystem: 1,
       enabled: 1,
       deletedAt: null,

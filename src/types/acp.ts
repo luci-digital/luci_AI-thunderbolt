@@ -40,6 +40,9 @@ export type Agent = {
   url: string | null
   description: string | null
   icon: string | null
+  /** Working directory for the ACP session (remote-acp agents with a real
+   *  filesystem). Null = default ('/'). */
+  cwd: string | null
   isSystem: 0 | 1
   enabled: 0 | 1
   deletedAt: string | null

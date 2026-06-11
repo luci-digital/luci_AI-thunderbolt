@@ -16,6 +16,7 @@ const baseAgent: Agent = {
   url: 'wss://x',
   description: null,
   icon: null,
+  cwd: null,
   isSystem: 0,
   enabled: 1,
   deletedAt: null,

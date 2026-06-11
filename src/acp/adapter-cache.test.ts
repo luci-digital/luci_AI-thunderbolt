@@ -24,6 +24,7 @@ const agentA: Agent = {
   url: 'wss://a.test/ws',
   description: null,
   icon: null,
+  cwd: null,
   isSystem: 0,
   enabled: 1,
   deletedAt: null,

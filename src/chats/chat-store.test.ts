@@ -337,6 +337,7 @@ describe('chat-store', () => {
       url: 'wss://example.test/ws',
       description: null,
       icon: null,
+      cwd: null,
       isSystem: 0 as const,
       enabled: 1 as const,
       deletedAt: null,
