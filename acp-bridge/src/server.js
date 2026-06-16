@@ -97,6 +97,10 @@ export const startBridge = async (cfg, deps) => {
   const safeExit = (code) => {
     if (shuttingDown) return
     shuttingDown = true
+    // Never orphan the agent: if the child outlived a fatal error (e.g. the ws
+    // server failed to bind), kill it before we exit. safeExit is the only fatal
+    // chokepoint; the signal path uses stop(), so this never double-kills.
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
     finalExit(code)
   }
 

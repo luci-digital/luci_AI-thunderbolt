@@ -254,6 +254,32 @@ describe('startBridge lifecycle', () => {
     await expect(promise).rejects.toMatchObject({ exitCode: 69 })
     expect(exited).toBe(69)
   })
+
+  it('SIGKILLs a still-alive child on a fatal server bind error (never orphaned)', async () => {
+    const child = makeFakeChild() // alive: exitCode === null, signalCode === null
+    const wss = makeFakeWss(6003)
+    let exited = null
+
+    const promise = startBridge(
+      { agentCmd: ['agent'], host: '127.0.0.1', port: 8080, logger: quietLogger() },
+      {
+        spawn: () => child,
+        WebSocketServer: function () {
+          return wss
+        },
+        createLineReader: () => new EventEmitter(),
+        exit: (code) => {
+          exited = code
+        },
+      },
+    )
+
+    wss.emit('error', Object.assign(new Error('listen EADDRINUSE'), { code: 'EADDRINUSE' }))
+
+    await expect(promise).rejects.toMatchObject({ exitCode: 69 })
+    expect(child.killed).toContain('SIGKILL') // child reaped before exit, not orphaned
+    expect(exited).toBe(69)
+  })
 })
 
 describe('startBridge — Origin allowlist (cross-origin hijack guard)', () => {
