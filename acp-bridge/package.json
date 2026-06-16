@@ -1,0 +1,24 @@
+{
+  "name": "acp-bridge",
+  "version": "0.1.0",
+  "description": "Tiny CLI that relays a local stdio ACP agent to a localhost WebSocket for Thunderbolt.",
+  "type": "module",
+  "bin": {
+    "acp-bridge": "bin/cli.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "bun test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MPL-2.0",
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
