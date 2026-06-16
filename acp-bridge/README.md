@@ -2,7 +2,7 @@
 
 A tiny local helper that bridges a **stdio ACP agent** (Claude Code, Gemini CLI,
 Goose, any [Agent Client Protocol](https://agentclientprotocol.com) agent) to a
-localhost WebSocket so [Thunderbolt](https://thunderbird.net) — web or desktop —
+localhost WebSocket so [Thunderbolt](https://thunderbolt.io) — web or desktop —
 can talk to it.
 
 Thunderbolt reaches agents over a WebSocket. Most ACP agents speak **stdio**

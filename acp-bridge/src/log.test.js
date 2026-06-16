@@ -140,7 +140,7 @@ describe('extractLogEvent — PII safety (the whole point)', () => {
 
 describe('sanitizeOrigin', () => {
   it('keeps only scheme + host of a browser origin', () => {
-    expect(sanitizeOrigin('https://app.thunderbird.net')).toBe('https://app.thunderbird.net')
+    expect(sanitizeOrigin('https://app.thunderbolt.io')).toBe('https://app.thunderbolt.io')
   })
 
   it('strips any path/query', () => {
