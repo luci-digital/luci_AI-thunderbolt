@@ -150,6 +150,31 @@ describe('startBridge lifecycle', () => {
     expect(first.sent).toEqual([]) // old socket no longer receives
   })
 
+  it('supersedes a previous connection: closes the old socket 1000, new becomes active', async () => {
+    const { child, wss } = await startReady()
+    const first = connect(wss)
+    const second = connect(wss)
+
+    // Newest-wins: the old socket is closed, only the new one receives output.
+    expect(first.closedWith).toBe(1000)
+    expect(second.closedWith).toBeNull()
+    child.stdout.emit('data', '{"id":4}\n')
+    expect(second.sent).toEqual(['{"id":4}'])
+    expect(first.sent).toEqual([])
+  })
+
+  it('a superseded socket can no longer inject into agent stdin, only the newest can', async () => {
+    const { child, wss } = await startReady()
+    const first = connect(wss)
+    const second = connect(wss)
+
+    // close() doesn't synchronously stop buffered events — a stale socket emitting
+    // 'message' must be dropped, while the active socket still reaches stdin.
+    first.emit('message', '{"stale":true}')
+    second.emit('message', '{"id":7}')
+    expect(child.stdin.written).toEqual(['{"id":7}\n'])
+  })
+
   it('stop() closes ws with 1000, SIGTERMs the child, and exits 130 once it dies', async () => {
     const { child, wss, getStop, getExit } = await startReady()
     const socket = connect(wss)

@@ -241,16 +241,26 @@ export const startBridge = async (cfg, deps) => {
       }
 
       logger.info({ lifecycle: 'connected', origin })
+      // Single-client bridge: a new connection supersedes any previous one. Assign
+      // the new socket first (so the old socket's 'close' handler won't null it),
+      // then close the old one so a superseded client can't keep injecting into the
+      // shared agent stdin while only the newest receives output.
+      const previous = activeSocket
       activeSocket = socket
+      if (previous && previous !== socket && previous.readyState === WS_OPEN) previous.close(1000)
 
-      socket.on('message', (data) =>
+      socket.on('message', (data) => {
+        // Drop messages from a socket that's been superseded by a newer connection:
+        // close() doesn't synchronously stop buffered 'message' events, so guard on
+        // identity to keep a stale client out of the shared agent stdin.
+        if (activeSocket !== socket) return
         handleWsMessage({
           data,
           write: (chunk) => child.stdin.write(chunk),
           onWrite: (chunk) =>
             logger.debug(extractLogEvent({ direction: 'ws->agent', line: chunk.replace(/\n$/, '') })),
-        }),
-      )
+        })
+      })
       socket.on('error', (err) => logger.warn({ lifecycle: 'socket-error', errorCode: err.code }))
       socket.on('close', (closeCode) => {
         if (activeSocket === socket) activeSocket = null
