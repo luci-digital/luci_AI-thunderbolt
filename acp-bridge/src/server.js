@@ -282,7 +282,10 @@ export const startBridge = async (cfg, deps) => {
         if (shuttingDown) return
         if (child.exitCode !== null || child.signalCode !== null) return // exit handler already fired
         ready = true
-        onBanner?.(`ws://${host}:${resolvedPort}`)
+        // IPv6 literals (the only host form containing a colon) must be bracketed
+        // in a URL per RFC 3986: ws://::1:PORT is malformed; ws://[::1]:PORT is valid.
+        const hostForUrl = host.includes(':') ? `[${host}]` : host
+        onBanner?.(`ws://${hostForUrl}:${resolvedPort}`)
         resolve({ stop })
       }, GRACE_MS)
     })
