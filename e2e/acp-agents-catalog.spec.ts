@@ -28,6 +28,11 @@ test.describe('Agents catalog', () => {
     await expect(page.getByTestId('agent-catalog-card-gemini')).toBeVisible()
     await expect(page.getByTestId('agent-catalog-card-claude-acp')).toHaveCount(0)
 
+    // The clear (X) button resets the query and restores the filtered-out card.
+    await page.getByRole('button', { name: /clear search/i }).click()
+    await expect(search).toHaveValue('')
+    await expect(page.getByTestId('agent-catalog-card-claude-acp')).toBeVisible()
+
     // A guaranteed-no-match query shows the empty state.
     await search.fill('zzzqqqxx')
     await expect(page.getByText(/no agents found/i)).toBeVisible()

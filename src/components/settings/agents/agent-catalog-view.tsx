@@ -5,6 +5,7 @@
 import { SearchInput } from '@/components/ui/search-input'
 import { useAgentRegistrySearch } from '@/hooks/use-agent-registry-search'
 import type { RegistryEntry } from '@/types/registry'
+import { useRef } from 'react'
 import { AgentCatalogCard } from './agent-catalog-card'
 
 type AgentCatalogViewProps = {
@@ -18,11 +19,13 @@ type AgentCatalogViewProps = {
 export const AgentCatalogView = ({ entries }: AgentCatalogViewProps) => {
   const { query, setQuery, results, isEmpty } = useAgentRegistrySearch(entries)
   const showEmptyState = isEmpty && query.trim().length > 0
+  const searchRef = useRef<HTMLInputElement>(null)
 
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-lg font-medium">Browse agents</h2>
       <SearchInput
+        ref={searchRef}
         showIcon
         placeholder="Search agents"
         value={query}

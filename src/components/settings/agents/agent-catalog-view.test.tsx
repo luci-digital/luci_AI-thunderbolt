@@ -75,6 +75,21 @@ describe('AgentCatalogView', () => {
     expect(screen.queryByTestId('agent-catalog-card-goose')).not.toBeInTheDocument()
   })
 
+  it('clears the query and restores every card when the clear button is clicked', () => {
+    renderCatalog()
+    const input = screen.getByPlaceholderText('Search agents') as HTMLInputElement
+
+    fireEvent.change(input, { target: { value: 'gemini' } })
+    expect(input.value).toBe('gemini')
+    expect(screen.queryByTestId('agent-catalog-card-goose')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /clear search/i }))
+
+    expect(input.value).toBe('')
+    expect(screen.getByTestId('agent-catalog-card-gemini')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-catalog-card-goose')).toBeInTheDocument()
+  })
+
   it('shows a no-results message when nothing matches', () => {
     renderCatalog()
     fireEvent.change(screen.getByPlaceholderText('Search agents'), { target: { value: 'zzzqqqxx' } })
