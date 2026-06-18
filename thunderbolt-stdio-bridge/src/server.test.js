@@ -210,7 +210,7 @@ describe('startBridge lifecycle', () => {
 
     // Client briefly disconnects (e.g. Thunderbolt's reconnect backoff).
     first.emit('close', 1000)
-    expect(lines.pauseCalls).toBe(1) // reader paused so output isn't dropped
+    expect(lines.pauseCalls).toBe(2) // paused at start + again on this disconnect
 
     // The agent emits an in-flight response WHILE no client is connected.
     child.stdout.emit('data', '{"id":42}\n')
@@ -218,8 +218,23 @@ describe('startBridge lifecycle', () => {
 
     // The client reconnects: the reader resumes and drains the held line in order.
     const second = connect(wss)
-    expect(lines.resumeCalls).toBe(1)
+    expect(lines.resumeCalls).toBe(2) // start-pause + reconnect-pause each resumed once
     expect(second.sent).toEqual(['{"id":42}']) // the in-flight response survived the disconnect
+  })
+
+  it('holds agent output emitted BEFORE the first client connects (reader paused at start)', async () => {
+    const { child, wss, getLines } = await startReady()
+    const lines = getLines()
+    // No client yet: the reader is paused from the start (not read-and-dropped).
+    expect(lines.pauseCalls).toBe(1)
+
+    // The agent prints to stdout before anyone has connected.
+    child.stdout.emit('data', '{"id":1}\n')
+
+    // The first client connects → reader resumes and drains the held line.
+    const socket = connect(wss)
+    expect(lines.resumeCalls).toBe(1)
+    expect(socket.sent).toEqual(['{"id":1}']) // early output survived, not dropped
   })
 
   it('supersedes a previous connection: closes the old socket 1000, new becomes active', async () => {
@@ -287,7 +302,7 @@ describe('startBridge lifecycle', () => {
         WebSocketServer: function () {
           return wss
         },
-        createLineReader: () => new EventEmitter(),
+        createLineReader: (stream) => makeFakeLineReader(stream),
         exit: (code) => {
           exited = code
         },
@@ -314,7 +329,7 @@ describe('startBridge lifecycle', () => {
         WebSocketServer: function () {
           return wss
         },
-        createLineReader: () => new EventEmitter(),
+        createLineReader: (stream) => makeFakeLineReader(stream),
         exit: (code) => {
           exited = code
         },
@@ -339,7 +354,7 @@ describe('startBridge lifecycle', () => {
         WebSocketServer: function () {
           return wss
         },
-        createLineReader: () => new EventEmitter(),
+        createLineReader: (stream) => makeFakeLineReader(stream),
         exit: (code) => {
           exited = code
         },
@@ -364,7 +379,7 @@ describe('startBridge lifecycle', () => {
         WebSocketServer: function () {
           return wss
         },
-        createLineReader: () => new EventEmitter(),
+        createLineReader: (stream) => makeFakeLineReader(stream),
         exit: (code) => {
           exited = code
         },

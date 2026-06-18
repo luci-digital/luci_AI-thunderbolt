@@ -127,6 +127,13 @@ export const startBridge = async (cfg, deps) => {
       onDrop: (line) => logger.warn({ lifecycle: 'dropped-non-json', byteSize: Buffer.byteLength(line) }),
     })
 
+    // No client is connected until Thunderbolt dials in, so start the reader PAUSED:
+    // early agent stdout is held by OS pipe backpressure instead of read-and-dropped.
+    // The first connection resumes it (and any later disconnect re-pauses) — so the
+    // held-not-dropped invariant holds for EVERY no-client window, including the first.
+    lines.pause()
+    readerPaused = true
+
     // --- WebSocket server -----------------------------------------------------
     // verifyClient runs DURING the upgrade handshake: a disallowed Origin is
     // rejected with HTTP 403 and the WebSocket is never established, so a hostile
