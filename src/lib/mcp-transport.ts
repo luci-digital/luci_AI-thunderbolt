@@ -8,8 +8,9 @@
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
+import { isLoopbackUrl } from '@/acp/transports/is-loopback'
 import { getAuthToken } from './auth-token'
-import { computeEffectiveProxyEnabled, createProxyFetch } from './proxy-fetch'
+import { computeEffectiveProxyEnabled, createProxyFetch, type FetchFn } from './proxy-fetch'
 
 /** Remote transport kind. stdio (local) servers are connected by THU-575, not here. */
 export type MCPTransportType = 'http' | 'sse'
@@ -59,12 +60,32 @@ export const buildMcpHeaders = (token?: string): Record<string, string> => {
   return headers
 }
 
+const nativeFetch: FetchFn = Object.assign(
+  (input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init),
+  { preconnect: () => Promise.resolve(false) },
+)
+
 /**
- * Builds an MCP client transport that routes through the universal proxy fetch.
- * Hosted mode (web) goes through `${cloudUrl}/v1/proxy` with header rewriting;
- * Standalone mode (Tauri) hits the upstream directly. Picks SSE for `sse`,
- * otherwise Streamable HTTP — both accept the identical `{ fetch, requestInit }`
- * shape. Keeps the provider and the settings test-connection on one code path.
+ * Selects the fetch implementation for an MCP server URL. Loopback targets
+ * (`localhost` / `127.0.0.0-8` / `::1` / `*.localhost` — see {@link isLoopbackUrl})
+ * are the local `thunderbolt-stdio-bridge --mode mcp` server: connect directly with
+ * a native `fetch`, skipping the cloud proxy. A browser reaching its own machine
+ * has no SSRF surface (the proxy's localhost rejection protects the *cloud backend*,
+ * which is irrelevant here), and the proxy SSRF-rejects localhost regardless, so the
+ * proxied path would never reach the bridge. All non-loopback URLs keep the proxy
+ * hop. The factory is injected so the decision logic is unit-testable.
+ */
+export const resolveMcpFetch = (url: string, proxyFetch: FetchFn, native: FetchFn = nativeFetch): FetchFn =>
+  isLoopbackUrl(url) ? native : proxyFetch
+
+/**
+ * Builds an MCP client transport. Non-loopback URLs route through the universal
+ * proxy fetch: Hosted mode (web) goes through `${cloudUrl}/v1/proxy` with header
+ * rewriting; Standalone mode (Tauri) hits the upstream directly. Loopback URLs
+ * bypass the proxy and connect natively (see {@link resolveMcpFetch}). Picks SSE
+ * for `sse`, otherwise Streamable HTTP — both accept the identical
+ * `{ fetch, requestInit }` shape. Keeps the provider and the settings
+ * test-connection on one code path.
  */
 export const createMcpTransport = (
   url: string,
@@ -83,8 +104,9 @@ export const createMcpTransport = (
     getProxyAuthToken: getAuthToken,
     getProxyEnabled: () => computeEffectiveProxyEnabled(),
   })
+  const resolvedFetch = resolveMcpFetch(url, proxyFetch)
   const options = {
-    fetch: (input: string | URL, init?: RequestInit) => proxyFetch(input, init),
+    fetch: (input: string | URL, init?: RequestInit) => resolvedFetch(input, init),
     requestInit: { headers },
   }
   const transport =

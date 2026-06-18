@@ -5,7 +5,8 @@
 import { describe, expect, it } from 'bun:test'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { buildMcpHeaders, createMcpTransport } from './mcp-transport'
+import { buildMcpHeaders, createMcpTransport, resolveMcpFetch } from './mcp-transport'
+import type { FetchFn } from './proxy-fetch'
 
 const url = 'https://mcp.example.com/server'
 const cloudUrl = 'https://cloud.example.com'
@@ -50,6 +51,33 @@ describe('createMcpTransport', () => {
       transport.protocolVersion = '2025-06-18'
     }).not.toThrow()
     expect(transport.protocolVersion).toBe('2025-06-18')
+  })
+})
+
+describe('resolveMcpFetch', () => {
+  const stub = (label: string): FetchFn =>
+    Object.assign(() => Promise.resolve(new Response(label)), { preconnect: () => Promise.resolve(false) })
+  const proxy = stub('proxy')
+  const native = stub('native')
+
+  it.each([
+    'http://localhost:8765/mcp',
+    'http://127.0.0.1:8765/mcp',
+    'http://127.5.4.3:8765/mcp',
+    'http://[::1]:8765/mcp',
+    'http://foo.localhost:8765/mcp',
+  ])('uses the native fetch for the loopback target %s', (url) => {
+    expect(resolveMcpFetch(url, proxy, native)).toBe(native)
+  })
+
+  it.each([
+    'https://mcp.example.com/server',
+    'http://192.168.1.10:8765/mcp',
+    'http://10.0.0.5/mcp',
+    'http://example.com/mcp',
+    'not-a-url',
+  ])('uses the proxy fetch for the non-loopback target %s', (url) => {
+    expect(resolveMcpFetch(url, proxy, native)).toBe(proxy)
   })
 })
 
