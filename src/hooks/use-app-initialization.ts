@@ -7,7 +7,8 @@ import type { HttpClient } from '@/contexts'
 import { getSettings } from '@/dal'
 import { getAuthToken } from '@/lib/auth-token'
 import { Database, getCurrentDatabase, setDatabase } from '@/db/database'
-import type { AnyDrizzleDatabase } from '@/db/database-interface'
+import type { AnyDrizzleDatabase, InitialSyncOutcome } from '@/db/database-interface'
+import { settingsTable } from '@/db/tables'
 import { getLocalSetting } from '@/stores/local-settings-store'
 import { createHandleError } from '@/lib/error-utils'
 import { createAppDir, resetAppDir } from '@/lib/fs'
@@ -44,6 +45,23 @@ const initializeDatabase = async (appDirPath: string): Promise<{ db: AnyDrizzleD
   const db = await database.initialize({ type: databaseType, path: dbPath })
   setDatabase(database)
   return { db, database }
+}
+
+/**
+ * Whether the local DB has no reconciled rows yet — proxied by checking
+ * `settingsTable`, which is user-scoped (not workspace-scoped) and always gains
+ * an `anonymous_id` row when reconcile runs. Used to gate `waitForInitialSync`:
+ * a populated DB means a prior reconcile has already seeded shipped defaults,
+ * so `reconcileDefaults` will be effectively write-free this boot (see line 76
+ * in `reconcile-defaults.ts`) and waiting would only delay render.
+ *
+ * Empty DB is the load-bearing case — without a wait, reconcile would `INSERT`
+ * every shipped default into `ps_crud` and potentially clobber a user's
+ * already-synced cloud customizations before the sync stream brings them down.
+ */
+const isLocalDataEmpty = async (db: AnyDrizzleDatabase): Promise<boolean> => {
+  const row = await db.select().from(settingsTable).limit(1).get()
+  return !row
 }
 
 type TrayInitResult = { tray: TrayIcon | undefined; window: Window | undefined }
@@ -140,11 +158,23 @@ const executeInitializationSteps = async (httpClient?: HttpClient): Promise<Hand
     await db.get(sql`select 1`)
   })
 
-  // Step 3: Wait for PowerSync initial sync before reconciling defaults.
-  // This ensures synced data from the cloud is available before we check for missing
-  // defaults. The implementation never rejects (best-effort with internal timeout);
-  // the outcome is reported in the app_init_timing event below.
-  const initialSyncOutcome = await time('step3_wait_for_initial_sync', () => database.waitForInitialSync())
+  // Step 3: Wait for PowerSync initial sync — but only when local DB is empty.
+  //
+  // Why conditional: `reconcileDefaults` already skips writes when shipped defaults
+  // match what's stored (`reconcile-defaults.ts:76`). So a returning boot with a
+  // populated local DB reconciles without queueing anything into `ps_crud` — the
+  // wait is dead weight there. The wait is only load-bearing when local is empty:
+  // without it, reconcile would `INSERT` every default and the upload could
+  // clobber cloud customizations before the sync stream brings them down.
+  //
+  // For brand-new + sync-disabled, the wait short-circuits to `'disabled'` cheaply.
+  // For brand-new + sync-enabled + offline, the wait still hits its internal
+  // timeout (`timed_out` outcome); reconcile then proceeds and seeds defaults —
+  // acceptable risk given the alternative is an unusable app on first launch.
+  const localEmpty = await isLocalDataEmpty(db)
+  const initialSyncOutcome: InitialSyncOutcome = localEmpty
+    ? await time('step3_wait_for_initial_sync', () => database.waitForInitialSync())
+    : 'not_required'
 
   // Step 4: Reconcile defaults
   try {

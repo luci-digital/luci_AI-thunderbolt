@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { setupTestDatabase, teardownTestDatabase } from '@/dal/test-utils'
+import { resetTestDatabase, setupTestDatabase, teardownTestDatabase } from '@/dal/test-utils'
 import { getInitTimingPayload, resetInitTiming } from '@/lib/init-timing'
 import { createMockHttpClient } from '@/test-utils/http-client'
 import { createTestProvider } from '@/test-utils/test-provider'
@@ -131,7 +131,6 @@ describe('useAppInitialization', () => {
       'step1_create_app_dir_ms',
       'step2_initialize_database_ms',
       'step2b_db_ready_ms',
-      'step3_wait_for_initial_sync_ms',
       'step4_reconcile_defaults_ms',
       'step4b_run_data_migrations_ms',
       'step5_get_settings_ms',
@@ -143,6 +142,40 @@ describe('useAppInitialization', () => {
     }
     // step6 is skipped when an httpClient is injected (as in this test).
     expect(payload).not.toHaveProperty('step6_create_http_client_ms')
+    // setupTestDatabase seeded defaults via reconcileDefaults, so local DB is
+    // populated and step3 (waitForInitialSync) is skipped — the wait is only
+    // load-bearing when local is empty (see comment in executeInitializationSteps).
+    expect(payload).not.toHaveProperty('step3_wait_for_initial_sync_ms')
     expect(payload.init_run).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('useAppInitialization — empty local DB', () => {
+  beforeAll(async () => {
+    // `resetTestDatabase` applies the schema but does NOT call `reconcileDefaults`,
+    // so the modelsTable is empty when the hook runs — exercising the load-bearing
+    // path where waitForInitialSync gates reconcile against the sync stream.
+    await resetTestDatabase()
+  })
+
+  afterAll(async () => {
+    await teardownTestDatabase()
+  })
+
+  it('records step3_wait_for_initial_sync when local DB is empty', async () => {
+    resetInitTiming()
+    const mockHttpClient = createMockHttpClient(mockPostHogConfig)
+    const { result } = renderHook(() => useAppInitialization(mockHttpClient), {
+      wrapper: createTestProvider({ mockResponse: mockPostHogConfig }),
+    })
+
+    await act(async () => {
+      await getClock().runAllAsync()
+    })
+
+    expect(result.current.initData).toBeDefined()
+    const payload = getInitTimingPayload()
+    // Wait IS recorded because the modelsTable was empty entering the hook.
+    expect(payload.step3_wait_for_initial_sync_ms).toBeNumber()
   })
 })

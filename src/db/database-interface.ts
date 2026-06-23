@@ -11,8 +11,11 @@ import type * as schema from './schema'
  * - `synced`: priority-1 buckets completed (instant for returning users via offline-status restore)
  * - `timed_out`: sync didn't complete within the timeout (e.g. network down)
  * - `failed`: the wait rejected unexpectedly; app boots regardless
+ * - `not_required`: local DB already has reconciled data, so the wait was skipped.
+ *   `reconcileDefaults` is a no-op for unchanged rows (line 76 in reconcile-defaults.ts),
+ *   so a populated local DB can reconcile immediately without racing the sync stream.
  */
-export type InitialSyncOutcome = 'disabled' | 'synced' | 'timed_out' | 'failed'
+export type InitialSyncOutcome = 'disabled' | 'synced' | 'timed_out' | 'failed' | 'not_required'
 
 export type DatabaseInterface = {
   db: BaseSQLiteDatabase<'async', any, typeof schema>
