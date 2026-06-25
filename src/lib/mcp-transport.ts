@@ -65,7 +65,7 @@ export type McpFetch = (input: string | URL, init?: RequestInit) => Promise<Resp
 
 /**
  * Picks the fetch implementation for an MCP `url`. A loopback target is the
- * local stdio-bridge (it serves `http://127.0.0.1:PORT/mcp`): connect with the
+ * local bridge (it serves `http://127.0.0.1:PORT/mcp`): connect with the
  * native `fetch` directly, bypassing the universal proxy — the proxy forbids
  * loopback/private hosts, and a same-machine bridge needs no proxy hop. Remote
  * targets route through `createProxyFetch` (Hosted: `${cloudUrl}/v1/proxy` with
@@ -94,7 +94,7 @@ export const resolveMcpFetch = (url: string, cloudUrl: string, nativeFetch?: typ
 /**
  * Builds an MCP client transport. Remote servers route through the universal
  * proxy fetch (Hosted web → `${cloudUrl}/v1/proxy` with header rewriting;
- * Standalone Tauri → upstream-direct); a loopback stdio-bridge URL connects
+ * Standalone Tauri → upstream-direct); a loopback bridge URL connects
  * natively (see `resolveMcpFetch`). Picks SSE for `sse`, otherwise Streamable
  * HTTP — both accept the identical `{ fetch, requestInit }` shape. Keeps the
  * provider and the settings test-connection on one code path.

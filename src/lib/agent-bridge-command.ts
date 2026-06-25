@@ -3,12 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 /**
- * Shell-command composers for the stdio-bridge connect flow.
+ * Shell-command composers for the bridge connect flow.
  *
  * A catalogue agent is a local CLI (npx / uvx / binary). To reach it from the
- * app the user runs `thunderbolt-stdio-bridge`, which spawns the agent's CLI and
- * exposes it over a loopback WebSocket (`ws://127.0.0.1:PORT`). These helpers
- * build the three copyable commands the connect dialog walks the user through:
+ * app the user runs `zeus bridge`, which spawns the agent's CLI and exposes it
+ * over a loopback WebSocket (`ws://127.0.0.1:PORT`). These helpers build the
+ * three copyable commands the connect dialog walks the user through:
  *
  *   1. install the bridge (`composeInstallCommand`)
  *   2. run the bridge wrapping the agent (`composeBridgeCommand`)
@@ -22,14 +22,14 @@
 import { isLoopbackUrl } from '@/acp/transports/is-loopback'
 import type { RegistryEntry } from '@/types/registry'
 
-/** The command name the app's `install.sh` installs onto PATH. */
-const bridgeBin = 'thunderbolt-stdio-bridge'
+/** The command name the app's `install.sh` installs onto PATH. The bridge is a
+ *  subcommand of this binary (`zeus bridge …`). */
+const bridgeBin = 'zeus'
 
-/** Canonical one-line installer (curl | bash) — matches
- *  `thunderbolt-stdio-bridge/install.sh`'s documented invocation. The bridge
- *  drops onto the npm global bin as a node-shebang script. */
+/** Canonical one-line installer (curl | bash) — matches `zeus/install.sh`'s
+ *  documented invocation. The binary drops onto the user's PATH. */
 const installCommand =
-  'curl -fsSL https://raw.githubusercontent.com/thunderbird/thunderbolt/main/thunderbolt-stdio-bridge/install.sh | bash'
+  'curl -fsSL https://raw.githubusercontent.com/thunderbird/thunderbolt/main/zeus/install.sh | bash'
 
 /**
  * The shell fragment that launches the agent's own CLI, e.g.
@@ -72,11 +72,11 @@ const needsAllowOrigin = (origin: string | undefined): origin is string => {
 
 /**
  * The full bridge command for an agent:
- * `thunderbolt-stdio-bridge --mode acp -- <launch>`. The bridge is the bare
- * binary `install.sh` drops on PATH — invoke it directly (no `npx`, which would
- * hit the registry since the bridge is never published to npm). Returns `null`
- * when the agent only ships a binary distribution (no composable launch
- * fragment), so the dialog can render its binary fallback instead.
+ * `zeus bridge --mode acp -- <launch>`. `zeus` is the bare binary `install.sh`
+ * drops on PATH — invoke it directly (no `npx`, which would hit the registry
+ * since the binary is never published to npm). Returns `null` when the agent
+ * only ships a binary distribution (no composable launch fragment), so the
+ * dialog can render its binary fallback instead.
  *
  * When `origin` is a non-loopback app origin (production web), the bridge's
  * default loopback-only Origin allowlist would reject the browser's WS upgrade,
@@ -91,5 +91,5 @@ export const composeBridgeCommand = (entry: RegistryEntry, origin?: string): str
     return null
   }
   const allowOrigin = needsAllowOrigin(origin) ? `--allow-origin '${origin}' ` : ''
-  return `${bridgeBin} --mode acp ${allowOrigin}-- ${launch}`
+  return `${bridgeBin} bridge --mode acp ${allowOrigin}-- ${launch}`
 }

@@ -45,9 +45,7 @@ describe('BridgeConnectDialog — npx agent', () => {
     expect(screen.getByText(/connect gemini via bridge/i)).toBeInTheDocument()
     // Install command and the bridge run command both appear.
     expect(screen.getByText(/curl -fsSL/)).toBeInTheDocument()
-    expect(
-      screen.getByText('thunderbolt-stdio-bridge --mode acp -- npx @google/gemini-cli@0.46.0 --acp'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('zeus bridge --mode acp -- npx @google/gemini-cli@0.46.0 --acp')).toBeInTheDocument()
     // Step 3 directs the user to Add custom agent.
     expect(screen.getByText(/add custom agent/i)).toBeInTheDocument()
   })
@@ -59,9 +57,7 @@ describe('BridgeConnectDialog — npx agent', () => {
       fireEvent.click(screen.getByTestId('copyable-command-copy-run'))
     })
 
-    expect(writeTextMock).toHaveBeenCalledWith(
-      'thunderbolt-stdio-bridge --mode acp -- npx @google/gemini-cli@0.46.0 --acp',
-    )
+    expect(writeTextMock).toHaveBeenCalledWith('zeus bridge --mode acp -- npx @google/gemini-cli@0.46.0 --acp')
   })
 
   it('copies the install command to the clipboard', async () => {

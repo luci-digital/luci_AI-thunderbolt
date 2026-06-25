@@ -174,7 +174,7 @@ export const AddCustomAgentDialog = ({
   const trimmedUrl = state.url.trim()
   const trimmedDescription = state.description.trim()
   const validation = validateAgentUrl(trimmedUrl, isIos)
-  // A loopback URL is a local stdio-bridge endpoint — reassure the user it
+  // A loopback URL is a local bridge endpoint — reassure the user it
   // connects directly (no cloud proxy). Derived during render from the field.
   const isLoopbackTarget = trimmedUrl.length > 0 && isLoopbackUrl(trimmedUrl)
   // Surface an invalid-URL error at render time (once the field is non-empty)
@@ -267,8 +267,8 @@ export const AddCustomAgentDialog = ({
               </p>
             ) : (
               <p className="text-[length:var(--font-size-xs)] text-muted-foreground">
-                Running an agent locally? Use the <code className="font-mono">thunderbolt-stdio-bridge</code> and paste
-                its <code className="font-mono">ws://127.0.0.1:PORT</code> address.
+                Running an agent locally? Use <code className="font-mono">zeus bridge</code> and paste its{' '}
+                <code className="font-mono">ws://127.0.0.1:PORT</code> address.
               </p>
             )}
           </div>

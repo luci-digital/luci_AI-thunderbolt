@@ -225,7 +225,7 @@ describe('openTransport — agent-type routing', () => {
   })
 
   it('remote-acp to a loopback bridge URL on Web connects natively (no proxy tunnel)', async () => {
-    // The stdio-bridge prints `ws://127.0.0.1:PORT`. Even on Web (where the proxy
+    // The bridge prints `ws://127.0.0.1:PORT`. Even on Web (where the proxy
     // toggle would normally force the universal-proxy path) a loopback target must
     // connect directly — the proxy hard-rejects loopback/private hosts (4003).
     const transport = await openTransport({

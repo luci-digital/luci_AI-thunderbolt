@@ -109,7 +109,7 @@ const resolveWebSocketFactory = (inputs: OpenTransportInputs): WebSocketFactory 
   if (inputs.agentType === 'managed-acp') {
     return resolveManagedAcpFactory(inputs)
   }
-  // A loopback target is the local stdio-bridge (it prints `ws://127.0.0.1:PORT`).
+  // A loopback target is the local bridge (it prints `ws://127.0.0.1:PORT`).
   // Connect with a plain native WebSocket regardless of platform or proxy toggle:
   // the universal proxy hard-rejects loopback/private hosts (4003), and the bridge
   // is a trusted same-machine process needing no bearer. This carve-out precedes

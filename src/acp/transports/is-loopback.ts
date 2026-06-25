@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 /**
- * Loopback classification for the stdio-bridge connect flow.
+ * Loopback classification for the bridge connect flow.
  *
  * The bridge binds to `127.0.0.1` and prints `ws://127.0.0.1:PORT` (ACP) or
  * `http://127.0.0.1:PORT/mcp` (MCP) on its STDERR. The app connects to that
