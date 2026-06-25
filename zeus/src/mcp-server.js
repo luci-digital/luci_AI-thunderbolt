@@ -33,8 +33,8 @@ const {
   StreamableHTTPServerTransport: DefaultStreamableHTTPServerTransport,
 } = require('@modelcontextprotocol/sdk/server/streamableHttp.js')
 const { UnavailableError } = require('./errors')
-const { buildOriginAllowlist, classifyFrame, safeClassifyFrame } = require('./log')
-const { createNdjsonReader, wsToFrame } = require('./relay')
+const { buildOriginAllowlist, safeClassifyFrame } = require('./log')
+const { createNdjsonReader } = require('./relay')
 const { createMultiplexer } = require('./mcp-multiplexer')
 const { superviseChild: defaultSuperviseChild } = require('./child')
 const { formatHostForUrl, makeCloseLatch } = require('./util')
@@ -249,6 +249,7 @@ const startMcpFace = ({
       if (allowAnyOrigin) {
         res.setHeader('Access-Control-Allow-Origin', '*')
       } else if (typeof origin === 'string' && isOriginAllowed(origin)) {
+        // nosemgrep: javascript.express.security.cors-misconfiguration.cors-misconfiguration -- origin reflected only after isOriginAllowed() allowlist check; arbitrary origins get no ACAO header
         res.setHeader('Access-Control-Allow-Origin', origin)
         res.setHeader('Vary', 'Origin')
       }
