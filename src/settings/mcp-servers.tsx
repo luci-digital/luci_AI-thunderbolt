@@ -36,7 +36,7 @@ import { type McpServer } from '@/types'
 import { useMutation } from '@tanstack/react-query'
 import { useQuery } from '@powersync/tanstack-react-query'
 import { eq } from 'drizzle-orm'
-import { Check, Copy, Globe, LockKeyhole, Plus, RefreshCw, Server, Trash2, X } from 'lucide-react'
+import { Check, Copy, Globe, LockKeyhole, Plus, RefreshCw, Server, Terminal, Trash2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { v7 as uuidv7 } from 'uuid'
@@ -58,6 +58,7 @@ import { parseMcpServersConfig, type ParsedMcpServer } from '@/lib/mcp-config-im
 import { validateMcpServerUrl } from '@/lib/mcp-url-validation'
 import { useMcpServerOAuth, type McpOAuthCallback, type OAuthCardState } from '@/hooks/use-mcp-server-oauth'
 import { generateServerName, useAddServerForm } from '@/hooks/use-add-server-form'
+import { McpBridgeConnectDialog } from '@/components/settings/mcp-servers/mcp-bridge-connect-dialog'
 
 export { generateServerName }
 
@@ -195,6 +196,7 @@ export default function McpServersPage({ deps = {} }: { deps?: McpServersPageDep
   const location = useLocation()
   const navigate = useNavigate()
   const [mode, setMode] = useState<AddServerMode>('simple')
+  const [bridgeDialogOpen, setBridgeDialogOpen] = useState(false)
   const [jsonText, setJsonText] = useState('')
   const [importError, setImportError] = useState<string | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState<string | null>(null)
@@ -566,211 +568,231 @@ export default function McpServersPage({ deps = {} }: { deps?: McpServersPageDep
   return (
     <div className="flex flex-col gap-6 p-4 w-full max-w-[760px] mx-auto">
       <PageHeader title="MCP Servers">
-        <Dialog
-          open={form.isAddDialogOpen}
-          onOpenChange={(open) => {
-            if (open) {
-              form.openDialog()
-              return
-            }
-            // Closing (Escape / overlay / X) clears the form and cancels any
-            // in-flight or pending probe, so nothing lands in the background.
-            form.resetAddDialog()
-            resetLocalDialogState()
-          }}
-        >
-          <DialogTrigger asChild>
-            <Button variant="outline" size="icon" className="rounded-lg">
-              <Plus />
-            </Button>
-          </DialogTrigger>
-          <ResponsiveModalContentComposable className="sm:max-w-[500px] max-h-[85vh]">
-            <ResponsiveModalHeader>
-              <ResponsiveModalTitle>Add MCP Server</ResponsiveModalTitle>
-              <ResponsiveModalDescription className="sr-only">Add a new MCP server</ResponsiveModalDescription>
-            </ResponsiveModalHeader>
-
-            <ToggleGroup
-              type="single"
-              variant="outline"
-              value={mode}
-              onValueChange={(value) => {
-                if (value !== 'simple' && value !== 'advanced') {
-                  return
-                }
-                // Each mode owns a different error source (JSON import vs OAuth
-                // authorization). Clear both on switch so a stale message from the
-                // mode you're leaving can't surface under the new mode's UI.
-                setImportError(null)
-                clearDialogError()
-                setMode(value)
-              }}
-              className="w-full flex-shrink-0"
-            >
-              <ToggleGroupItem value="simple">Simple</ToggleGroupItem>
-              <ToggleGroupItem value="advanced">Advanced (JSON)</ToggleGroupItem>
-            </ToggleGroup>
-
-            <div className="flex-1 overflow-y-auto px-1 -mx-1">
-              {mode === 'simple' ? (
-                <div className="grid gap-4 pt-4 pb-2">
-                  <div className="grid gap-2">
-                    <Label htmlFor="name">Name</Label>
-                    <Input
-                      id="name"
-                      placeholder="Server name (used to prefix tools)"
-                      value={newServerName}
-                      onChange={(e) => form.changeName(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="url">Server URL</Label>
-                    <Input
-                      id="url"
-                      placeholder="http://localhost:8000/mcp/"
-                      value={newServerUrl}
-                      onChange={(e) => form.changeUrl(e.target.value)}
-                      onBlur={handleUrlBlur}
-                      onKeyDown={handleUrlKeyDown}
-                      aria-invalid={urlValidation?.ok === false}
-                    />
-                    {urlValidation?.ok === false && (
-                      <p className="text-[length:var(--font-size-xs)] text-destructive">{urlValidation.reason}</p>
-                    )}
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="transport">Transport</Label>
-                    <Select
-                      value={newServerTransport}
-                      onValueChange={(value) => form.changeTransport(value as MCPTransportType)}
-                    >
-                      <SelectTrigger id="transport" className="w-full rounded-lg">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="http">HTTP</SelectItem>
-                        <SelectItem value="sse">SSE</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="token">Credential (optional)</Label>
-                    <Input
-                      id="token"
-                      type="password"
-                      placeholder="Bearer token or API key"
-                      value={newServerToken}
-                      onChange={(e) => form.changeToken(e.target.value)}
-                    />
-                  </div>
-
-                  {newServerUrl && isUrlValid && (
-                    <Button
-                      onClick={testConnection}
-                      disabled={isTestingConnection}
-                      variant="outline"
-                      className="w-full"
-                    >
-                      {isTestingConnection ? 'Testing Connection...' : 'Test Connection'}
-                    </Button>
-                  )}
-
-                  {testResult.kind === 'success' && (
-                    <StatusPanel tone="success" icon={<Check className="h-4 w-4" />} title="Connection successful!">
-                      {serverCapabilities.length > 0 && (
-                        <div className="mt-3">
-                          <p className="text-sm text-success font-medium">Available tools:</p>
-                          <ul className="text-sm text-success/90 mt-1 space-y-1 max-h-40 overflow-y-auto">
-                            {serverCapabilities.map((capability, index) => (
-                              <li key={index} className="flex items-center gap-2">
-                                <div className="w-1 h-1 bg-success rounded-full" />
-                                {capability}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </StatusPanel>
-                  )}
-
-                  {testResult.kind !== 'success' &&
-                    testResult.kind !== 'idle' &&
-                    (() => {
-                      const panel = testResultPanels[testResult.kind]
-                      return (
-                        <StatusPanel tone={panel.tone} icon={panel.icon} title={panel.title}>
-                          <p className={`text-sm mt-1 ${toneClasses[panel.tone].body}`}>{panel.body}</p>
-                        </StatusPanel>
-                      )
-                    })()}
-                </div>
-              ) : (
-                <div className="grid gap-4 pt-4 pb-2">
-                  <div className="grid gap-2">
-                    <Label htmlFor="json-config">Servers JSON</Label>
-                    <Textarea
-                      id="json-config"
-                      className="font-mono text-[length:var(--font-size-xs)] min-h-48 max-h-[40vh] overflow-y-auto resize-none"
-                      placeholder={
-                        '{\n  "mcpServers": {\n    "example": {\n      "url": "https://example.com/mcp"\n    }\n  }\n}'
-                      }
-                      value={jsonText}
-                      onChange={(e) => setJsonText(e.target.value)}
-                    />
-                    <p className="text-[length:var(--font-size-xs)] text-muted-foreground">
-                      Paste an <code>mcpServers</code> config. Only remote (http/sse) servers are supported; non-Bearer
-                      auth headers are ignored.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {addDialogError && (
-                <div className="mb-2">
-                  <StatusPanel tone="destructive" icon={<X className="h-4 w-4" />} title={addDialogError.title}>
-                    <p className="text-sm text-destructive/90 mt-1 whitespace-pre-line">{addDialogError.body}</p>
-                  </StatusPanel>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2 flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
               <Button
-                variant="ghost"
-                onClick={() => {
-                  form.resetAddDialog()
-                  resetLocalDialogState()
-                }}
+                variant="outline"
+                size="icon"
+                className="rounded-lg"
+                onClick={() => setBridgeDialogOpen(true)}
+                aria-label="Connect a local server via bridge"
               >
-                Cancel
+                <Terminal />
               </Button>
-              {mode === 'advanced' ? (
-                <Button onClick={handleImportConfig} disabled={!jsonText.trim() || importServersMutation.isPending}>
-                  Import Servers
-                </Button>
-              ) : testResult.kind === 'needs-oauth' ? (
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p>Connect a local server via bridge</p>
+            </TooltipContent>
+          </Tooltip>
+          <Dialog
+            open={form.isAddDialogOpen}
+            onOpenChange={(open) => {
+              if (open) {
+                form.openDialog()
+                return
+              }
+              // Closing (Escape / overlay / X) clears the form and cancels any
+              // in-flight or pending probe, so nothing lands in the background.
+              form.resetAddDialog()
+              resetLocalDialogState()
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button variant="outline" size="icon" className="rounded-lg">
+                <Plus />
+              </Button>
+            </DialogTrigger>
+            <ResponsiveModalContentComposable className="sm:max-w-[500px] max-h-[85vh]">
+              <ResponsiveModalHeader>
+                <ResponsiveModalTitle>Add MCP Server</ResponsiveModalTitle>
+                <ResponsiveModalDescription className="sr-only">Add a new MCP server</ResponsiveModalDescription>
+              </ResponsiveModalHeader>
+
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                value={mode}
+                onValueChange={(value) => {
+                  if (value !== 'simple' && value !== 'advanced') {
+                    return
+                  }
+                  // Each mode owns a different error source (JSON import vs OAuth
+                  // authorization). Clear both on switch so a stale message from the
+                  // mode you're leaving can't surface under the new mode's UI.
+                  setImportError(null)
+                  clearDialogError()
+                  setMode(value)
+                }}
+                className="w-full flex-shrink-0"
+              >
+                <ToggleGroupItem value="simple">Simple</ToggleGroupItem>
+                <ToggleGroupItem value="advanced">Advanced (JSON)</ToggleGroupItem>
+              </ToggleGroup>
+
+              <div className="flex-1 overflow-y-auto px-1 -mx-1">
+                {mode === 'simple' ? (
+                  <div className="grid gap-4 pt-4 pb-2">
+                    <div className="grid gap-2">
+                      <Label htmlFor="name">Name</Label>
+                      <Input
+                        id="name"
+                        placeholder="Server name (used to prefix tools)"
+                        value={newServerName}
+                        onChange={(e) => form.changeName(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label htmlFor="url">Server URL</Label>
+                      <Input
+                        id="url"
+                        placeholder="http://localhost:8000/mcp/"
+                        value={newServerUrl}
+                        onChange={(e) => form.changeUrl(e.target.value)}
+                        onBlur={handleUrlBlur}
+                        onKeyDown={handleUrlKeyDown}
+                        aria-invalid={urlValidation?.ok === false}
+                      />
+                      {urlValidation?.ok === false && (
+                        <p className="text-[length:var(--font-size-xs)] text-destructive">{urlValidation.reason}</p>
+                      )}
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label htmlFor="transport">Transport</Label>
+                      <Select
+                        value={newServerTransport}
+                        onValueChange={(value) => form.changeTransport(value as MCPTransportType)}
+                      >
+                        <SelectTrigger id="transport" className="w-full rounded-lg">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="http">HTTP</SelectItem>
+                          <SelectItem value="sse">SSE</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label htmlFor="token">Credential (optional)</Label>
+                      <Input
+                        id="token"
+                        type="password"
+                        placeholder="Bearer token or API key"
+                        value={newServerToken}
+                        onChange={(e) => form.changeToken(e.target.value)}
+                      />
+                    </div>
+
+                    {newServerUrl && isUrlValid && (
+                      <Button
+                        onClick={testConnection}
+                        disabled={isTestingConnection}
+                        variant="outline"
+                        className="w-full"
+                      >
+                        {isTestingConnection ? 'Testing Connection...' : 'Test Connection'}
+                      </Button>
+                    )}
+
+                    {testResult.kind === 'success' && (
+                      <StatusPanel tone="success" icon={<Check className="h-4 w-4" />} title="Connection successful!">
+                        {serverCapabilities.length > 0 && (
+                          <div className="mt-3">
+                            <p className="text-sm text-success font-medium">Available tools:</p>
+                            <ul className="text-sm text-success/90 mt-1 space-y-1 max-h-40 overflow-y-auto">
+                              {serverCapabilities.map((capability, index) => (
+                                <li key={index} className="flex items-center gap-2">
+                                  <div className="w-1 h-1 bg-success rounded-full" />
+                                  {capability}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </StatusPanel>
+                    )}
+
+                    {testResult.kind !== 'success' &&
+                      testResult.kind !== 'idle' &&
+                      (() => {
+                        const panel = testResultPanels[testResult.kind]
+                        return (
+                          <StatusPanel tone={panel.tone} icon={panel.icon} title={panel.title}>
+                            <p className={`text-sm mt-1 ${toneClasses[panel.tone].body}`}>{panel.body}</p>
+                          </StatusPanel>
+                        )
+                      })()}
+                  </div>
+                ) : (
+                  <div className="grid gap-4 pt-4 pb-2">
+                    <div className="grid gap-2">
+                      <Label htmlFor="json-config">Servers JSON</Label>
+                      <Textarea
+                        id="json-config"
+                        className="font-mono text-[length:var(--font-size-xs)] min-h-48 max-h-[40vh] overflow-y-auto resize-none"
+                        placeholder={
+                          '{\n  "mcpServers": {\n    "example": {\n      "url": "https://example.com/mcp"\n    }\n  }\n}'
+                        }
+                        value={jsonText}
+                        onChange={(e) => setJsonText(e.target.value)}
+                      />
+                      <p className="text-[length:var(--font-size-xs)] text-muted-foreground">
+                        Paste an <code>mcpServers</code> config. Only remote (http/sse) servers are supported;
+                        non-Bearer auth headers are ignored.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {addDialogError && (
+                  <div className="mb-2">
+                    <StatusPanel tone="destructive" icon={<X className="h-4 w-4" />} title={addDialogError.title}>
+                      <p className="text-sm text-destructive/90 mt-1 whitespace-pre-line">{addDialogError.body}</p>
+                    </StatusPanel>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2 flex-shrink-0">
                 <Button
-                  onClick={handleAddAndAuthorize}
-                  disabled={!newServerUrl || !isUrlValid || isAddAuthorizePending}
+                  variant="ghost"
+                  onClick={() => {
+                    form.resetAddDialog()
+                    resetLocalDialogState()
+                  }}
                 >
-                  <LockKeyhole className="h-3.5 w-3.5 mr-1.5" />
-                  Add &amp; Authorize
+                  Cancel
                 </Button>
-              ) : (
-                <Button
-                  onClick={handleAddServer}
-                  disabled={!newServerUrl || !isUrlValid || testResult.kind !== 'success'}
-                >
-                  Add Server
-                </Button>
-              )}
-            </div>
-          </ResponsiveModalContentComposable>
-        </Dialog>
+                {mode === 'advanced' ? (
+                  <Button onClick={handleImportConfig} disabled={!jsonText.trim() || importServersMutation.isPending}>
+                    Import Servers
+                  </Button>
+                ) : testResult.kind === 'needs-oauth' ? (
+                  <Button
+                    onClick={handleAddAndAuthorize}
+                    disabled={!newServerUrl || !isUrlValid || isAddAuthorizePending}
+                  >
+                    <LockKeyhole className="h-3.5 w-3.5 mr-1.5" />
+                    Add &amp; Authorize
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleAddServer}
+                    disabled={!newServerUrl || !isUrlValid || testResult.kind !== 'success'}
+                  >
+                    Add Server
+                  </Button>
+                )}
+              </div>
+            </ResponsiveModalContentComposable>
+          </Dialog>
+        </div>
       </PageHeader>
+
+      <McpBridgeConnectDialog open={bridgeDialogOpen} onOpenChange={setBridgeDialogOpen} />
 
       <div className="grid gap-4">
         {servers.map((server) => {
@@ -991,6 +1013,10 @@ export default function McpServersPage({ deps = {} }: { deps?: McpServersPageDep
               <Button onClick={form.openDialog} variant="outline">
                 <Plus className="h-4 w-4 mr-2" />
                 Add Server
+              </Button>
+              <Button onClick={() => setBridgeDialogOpen(true)} variant="ghost" className="mt-2">
+                <Terminal className="h-4 w-4 mr-2" />
+                Connect a local server via bridge
               </Button>
             </CardContent>
           </Card>

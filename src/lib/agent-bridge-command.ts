@@ -71,25 +71,40 @@ const needsAllowOrigin = (origin: string | undefined): origin is string => {
 }
 
 /**
- * The full bridge command for an agent:
- * `zeus bridge --mode acp -- <launch>`. `zeus` is the bare binary `install.sh`
- * drops on PATH — invoke it directly (no `npx`, which would hit the registry
- * since the binary is never published to npm). Returns `null` when the agent
- * only ships a binary distribution (no composable launch fragment), so the
- * dialog can render its binary fallback instead.
+ * Build a `zeus bridge --mode <mode> -- <launch>` command for an already-resolved
+ * launch fragment, or `null` when there's nothing to wrap. `zeus` is the bare
+ * binary `install.sh` drops on PATH — invoked directly (no `npx`, which would hit
+ * the registry since the binary is never published to npm).
  *
  * When `origin` is a non-loopback app origin (production web), the bridge's
- * default loopback-only Origin allowlist would reject the browser's WS upgrade,
- * so we add `--allow-origin '<origin>'`. A loopback origin (or none) needs
- * nothing extra — the default allowlist already accepts loopback.
- *
- * The catalogue is ACP-only, so `--mode acp` is always correct here.
+ * default loopback-only Origin allowlist would reject the browser's request, so
+ * we add `--allow-origin '<origin>'`. A loopback origin (or none) needs nothing
+ * extra — the default allowlist already accepts loopback.
  */
-export const composeBridgeCommand = (entry: RegistryEntry, origin?: string): string | null => {
-  const launch = composeLaunchCommand(entry)
+const composeBridge = (mode: 'acp' | 'mcp', launch: string | null, origin?: string): string | null => {
   if (!launch) {
     return null
   }
   const allowOrigin = needsAllowOrigin(origin) ? `--allow-origin '${origin}' ` : ''
-  return `${bridgeBin} bridge --mode acp ${allowOrigin}-- ${launch}`
+  return `${bridgeBin} bridge --mode ${mode} ${allowOrigin}-- ${launch}`
 }
+
+/**
+ * The full ACP bridge command for a catalogue agent: `zeus bridge --mode acp --
+ * <launch>`. Returns `null` when the agent only ships a binary distribution (no
+ * composable launch fragment), so the dialog can render its binary fallback. The
+ * catalogue is ACP-only, so `--mode acp` is always correct here.
+ */
+export const composeBridgeCommand = (entry: RegistryEntry, origin?: string): string | null =>
+  composeBridge('acp', composeLaunchCommand(entry), origin)
+
+/**
+ * The full bridge command for a local stdio MCP server: `zeus bridge --mode mcp
+ * -- <command>`. Returns `null` for a blank command. The bridge serves the
+ * wrapped server over a loopback `http://127.0.0.1:PORT/mcp` endpoint the user
+ * then adds as a remote MCP server (the loopback carve-out lets the app reach
+ * it). `origin` adds `--allow-origin` for production web, as in
+ * `composeBridgeCommand`.
+ */
+export const composeMcpBridgeCommand = (stdioCommand: string, origin?: string): string | null =>
+  composeBridge('mcp', stdioCommand.trim() || null, origin)

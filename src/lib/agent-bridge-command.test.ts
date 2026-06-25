@@ -4,7 +4,12 @@
 
 import { describe, expect, it } from 'bun:test'
 import type { RegistryDistribution, RegistryEntry } from '@/types/registry'
-import { composeBridgeCommand, composeInstallCommand, composeLaunchCommand } from './agent-bridge-command'
+import {
+  composeBridgeCommand,
+  composeInstallCommand,
+  composeLaunchCommand,
+  composeMcpBridgeCommand,
+} from './agent-bridge-command'
 
 const entryWith = (distribution: RegistryDistribution): RegistryEntry => ({
   id: 'test',
@@ -87,6 +92,33 @@ describe('composeBridgeCommand', () => {
     const entry = entryWith({ binary: { 'linux-x86_64': { cmd: './goose' } } })
     expect(composeBridgeCommand(entry)).toBeNull()
     expect(composeBridgeCommand(entry, 'https://app.thunderbird.net')).toBeNull()
+  })
+})
+
+describe('composeMcpBridgeCommand', () => {
+  it('wraps a stdio command in the bridge command (--mode mcp)', () => {
+    const command = composeMcpBridgeCommand('npx @modelcontextprotocol/server-everything stdio')
+    expect(command).toBe('zeus bridge --mode mcp -- npx @modelcontextprotocol/server-everything stdio')
+    expect(command?.startsWith('zeus bridge --mode mcp')).toBe(true)
+  })
+
+  it('trims surrounding whitespace from the command', () => {
+    expect(composeMcpBridgeCommand('  uvx mcp-server  ')).toBe('zeus bridge --mode mcp -- uvx mcp-server')
+  })
+
+  it('returns null for a blank command', () => {
+    expect(composeMcpBridgeCommand('')).toBeNull()
+    expect(composeMcpBridgeCommand('   ')).toBeNull()
+  })
+
+  it('adds --allow-origin for a non-loopback app origin (production web)', () => {
+    expect(composeMcpBridgeCommand('npx srv', 'https://app.thunderbird.net')).toBe(
+      "zeus bridge --mode mcp --allow-origin 'https://app.thunderbird.net' -- npx srv",
+    )
+  })
+
+  it('omits --allow-origin for a loopback app origin', () => {
+    expect(composeMcpBridgeCommand('npx srv', 'http://localhost:1421')).not.toContain('--allow-origin')
   })
 })
 
