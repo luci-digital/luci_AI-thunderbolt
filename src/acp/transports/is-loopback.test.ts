@@ -12,6 +12,19 @@ describe('isLoopbackHost', () => {
     expect(isLoopbackHost('localhost')).toBe(true)
   })
 
+  it('treats the whole 127.0.0.0/8 block as loopback (matches the bridge classifier)', () => {
+    // A bridge bound with e.g. `--host 127.0.0.2` must connect directly, not via the proxy.
+    expect(isLoopbackHost('127.0.0.2')).toBe(true)
+    expect(isLoopbackHost('127.1.2.3')).toBe(true)
+    expect(isLoopbackHost('127.255.255.255')).toBe(true)
+  })
+
+  it('rejects malformed 127.* literals (out-of-range octets, wrong arity)', () => {
+    expect(isLoopbackHost('127.0.0.256')).toBe(false)
+    expect(isLoopbackHost('127.0.0')).toBe(false)
+    expect(isLoopbackHost('127.0.0.1.1')).toBe(false)
+  })
+
   it('does not treat 0.0.0.0 as loopback (it is a bind address, not a connect target)', () => {
     expect(isLoopbackHost('0.0.0.0')).toBe(false)
   })
@@ -33,6 +46,12 @@ describe('isLoopbackHost', () => {
     expect(isLoopbackHost('')).toBe(false)
   })
 
+  it('rejects hosts that only resemble the 127 prefix (exact first-octet match)', () => {
+    expect(isLoopbackHost('128.0.0.1')).toBe(false) // off-by-one first octet
+    expect(isLoopbackHost('1270.0.0.1')).toBe(false) // '1270' is not the literal '127'
+    expect(isLoopbackHost('27.0.0.1')).toBe(false)
+  })
+
   it('does not treat a name merely containing "localhost" as loopback', () => {
     expect(isLoopbackHost('localhost.evil.com')).toBe(false)
     expect(isLoopbackHost('notlocalhost')).toBe(false)
@@ -49,6 +68,10 @@ describe('isLoopbackUrl', () => {
   it('canonicalizes shorthand: ports, paths, and casing do not matter', () => {
     expect(isLoopbackUrl('http://localhost:3000/mcp')).toBe(true)
     expect(isLoopbackUrl('http://LOCALHOST/x')).toBe(true)
+  })
+
+  it('classifies a non-127.0.0.1 host in the 127.0.0.0/8 block as loopback', () => {
+    expect(isLoopbackUrl('ws://127.0.0.2:8080')).toBe(true)
   })
 
   it('does not treat a 0.0.0.0 URL as loopback (bind address, not a connect target)', () => {
