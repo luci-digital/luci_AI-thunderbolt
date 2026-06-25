@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "thunderbolt-stdio-bridge",
+      "name": "zeus",
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.0.0",
         "ws": "^8.18.0",

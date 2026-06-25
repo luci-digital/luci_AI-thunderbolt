@@ -226,6 +226,11 @@ const run = async ({
   switch (parsed.command) {
     case 'bridge':
       return runBridge(parsed, { stderr, exit, deps })
+    default:
+      // Unreachable today (the parser only resolves known commands), but guards a
+      // future `zeus <next>` wired into the parser yet not here from silently
+      // hanging — run() returning without ever calling exit().
+      throw new Error(`unhandled command: ${parsed.command}`)
   }
 }
 

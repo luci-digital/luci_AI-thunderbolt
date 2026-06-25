@@ -14,7 +14,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/thunderbird/thunderbolt/main/zeus/install.sh | bash
 #
 # Pin a version:  ... | bash -s -- 0.1.0
-# Custom bin dir: THUNDERBOLT_BIN_DIR=/opt/bin ... | bash
+# Custom bin dir: ZEUS_BIN_DIR=/opt/bin ... | bash
 set -euo pipefail
 
 REPO="thunderbird/thunderbolt"
@@ -26,13 +26,13 @@ command -v npm >/dev/null 2>&1 || { echo "error: npm is required (ships with nod
 # Install next to npm/npx (the npm global bin), or honor an explicit override.
 # Without an override, resolve the npm global prefix and refuse to proceed if it
 # is empty — never fall back to a bare `/bin`, which would be wrong and unsafe.
-if [ -n "${THUNDERBOLT_BIN_DIR:-}" ]; then
-  BIN_DIR="$THUNDERBOLT_BIN_DIR"
+if [ -n "${ZEUS_BIN_DIR:-}" ]; then
+  BIN_DIR="$ZEUS_BIN_DIR"
 else
   prefix="$(npm prefix -g 2>/dev/null)"
   [ -n "$prefix" ] && [ -d "$prefix" ] || {
     echo "error: could not resolve the npm global prefix (npm prefix -g)." >&2
-    echo "       set THUNDERBOLT_BIN_DIR=/path/to/bin and re-run." >&2
+    echo "       set ZEUS_BIN_DIR=/path/to/bin and re-run." >&2
     exit 1
   }
   BIN_DIR="$prefix/bin"
