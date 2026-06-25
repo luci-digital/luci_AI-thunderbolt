@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import type { HttpClient } from '@/contexts'
+import { docxToHtml } from '@/files/transformers/docx-to-html'
 import { getAttachment } from '@/lib/file-blob-storage'
 import { useEffect, useReducer, useRef } from 'react'
 
@@ -31,18 +32,10 @@ const reducer = (_state: DocumentBlobState, action: DocumentBlobAction): Documen
   }
 }
 
-/** Converts a DOCX blob to HTML via a lazily-imported mammoth. PDFs and other
- *  types skip conversion and return null. mammoth stays out of the main bundle
- *  because the import only runs on the DOCX path. */
-const convertDocxIfNeeded = async (blob: Blob, fileType: FileType): Promise<string | null> => {
-  if (fileType !== 'docx') {
-    return null
-  }
-  const mammoth = await import('mammoth')
-  const arrayBuffer = await blob.arrayBuffer()
-  const result = await mammoth.convertToHtml({ arrayBuffer })
-  return result.value
-}
+/** Renders DOCX previews to HTML via the shared {@link docxToHtml} transformer.
+ *  PDFs and other types skip conversion and return null. */
+const convertDocxIfNeeded = async (blob: Blob, fileType: FileType): Promise<string | null> =>
+  fileType === 'docx' ? docxToHtml(blob) : null
 
 /**
  * Shared blob-preview loader: resolves a Blob via `loadBlob`, exposes the load
