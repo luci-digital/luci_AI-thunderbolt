@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { Code2, ExternalLink } from 'lucide-react'
-import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import {
@@ -15,6 +14,7 @@ import {
 import { composeBridgeCommand } from '@/lib/agent-bridge-command'
 import type { RegistryEntry } from '@/types/registry'
 import { BridgeInstallStep } from './bridge-install-step'
+import { Step } from './bridge-connect-step'
 import { CopyableCommand } from './copyable-command'
 
 type BridgeConnectDialogProps = {
@@ -22,25 +22,6 @@ type BridgeConnectDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
-
-type StepProps = {
-  index: number
-  title: string
-  children: ReactNode
-}
-
-/** A numbered step with a title and body. */
-const Step = ({ index, title, children }: StepProps) => (
-  <div className="flex gap-3">
-    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-[length:var(--font-size-xs)] font-medium">
-      {index}
-    </span>
-    <div className="flex min-w-0 flex-1 flex-col gap-2">
-      <p className="text-[length:var(--font-size-sm)] font-medium">{title}</p>
-      {children}
-    </div>
-  </div>
-)
 
 /** Body for binary-only agents: no portable launch command, so we point the
  *  user at the agent's own docs to install and run it, then connect manually. */

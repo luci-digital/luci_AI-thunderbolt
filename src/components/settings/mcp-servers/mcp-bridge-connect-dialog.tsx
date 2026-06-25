@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -15,25 +15,13 @@ import {
 } from '@/components/ui/responsive-modal'
 import { composeMcpBridgeCommand } from '@/lib/agent-bridge-command'
 import { BridgeInstallStep } from '@/components/settings/agents/bridge-install-step'
+import { Step } from '@/components/settings/agents/bridge-connect-step'
 import { CopyableCommand } from '@/components/settings/agents/copyable-command'
 
 type McpBridgeConnectDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
-
-/** A numbered step with a title and body. */
-const Step = ({ index, title, children }: { index: number; title: string; children: ReactNode }) => (
-  <div className="flex gap-3">
-    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-[length:var(--font-size-xs)] font-medium">
-      {index}
-    </span>
-    <div className="flex min-w-0 flex-1 flex-col gap-2">
-      <p className="text-[length:var(--font-size-sm)] font-medium">{title}</p>
-      {children}
-    </div>
-  </div>
-)
 
 /**
  * Walks the user through exposing a local stdio MCP server through the `zeus

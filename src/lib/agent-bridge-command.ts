@@ -27,7 +27,9 @@ import type { RegistryEntry } from '@/types/registry'
 const bridgeBin = 'zeus'
 
 /** Canonical one-line installer (curl | bash) — matches `zeus/install.sh`'s
- *  documented invocation. The binary drops onto the user's PATH. */
+ *  documented invocation. The binary drops onto the user's PATH. Keep in sync with
+ *  `ZEUS_INSTALL_CMD` in `src-tauri/src/commands.rs`, which the desktop
+ *  auto-installer runs as the exact same string. */
 const installCommand =
   'curl -fsSL https://raw.githubusercontent.com/thunderbird/thunderbolt/main/zeus/install.sh | bash'
 
