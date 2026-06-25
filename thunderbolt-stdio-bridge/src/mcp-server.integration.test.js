@@ -86,6 +86,53 @@ describe.skipIf(unavailable)('mcp-server integration (real server-everything)', 
     const text = (result.content ?? []).map((c) => c.text ?? '').join('')
     expect(text).toContain('hello bridge')
   })
+
+  // The multiplexing proof: the Thunderbolt app opens several MCP connections
+  // (a Test-Connection probe, the persistent provider connection, reconnects).
+  // The OLD single-session transport rejected the SECOND initialize with
+  // "Server already initialized", killing the live connection. Here TWO clients
+  // connect to the SAME face URL sequentially (and a THIRD after the first
+  // closes), all sharing the ONE child (initialized exactly once) — every one
+  // must initialize, list the full tool set, and round-trip a tool call.
+  test('TWO concurrent clients both initialize, list tools, and call echo (multiplexed onto one child)', async () => {
+    const open = async (name) => {
+      const c = new Client({ name, version: '0.0.0' })
+      await c.connect(new StreamableHTTPClientTransport(new URL(face.url)))
+      return c
+    }
+
+    // The first client (`client`) is already connected from beforeAll. Open a
+    // second to the same URL — under the OLD code this initialize was rejected.
+    const second = await open('integration-second')
+    try {
+      expect(client.getServerVersion()).toBeTruthy()
+      expect(second.getServerVersion()).toBeTruthy()
+
+      const first = await client.listTools()
+      const secondList = await second.listTools()
+      expect(first.tools).toHaveLength(13)
+      expect(secondList.tools).toHaveLength(13)
+
+      const e1 = await client.callTool({ name: 'echo', arguments: { message: 'from-first' } })
+      const e2 = await second.callTool({ name: 'echo', arguments: { message: 'from-second' } })
+      expect((e1.content ?? []).map((c) => c.text ?? '').join('')).toContain('from-first')
+      expect((e2.content ?? []).map((c) => c.text ?? '').join('')).toContain('from-second')
+
+      // A THIRD client after the second closes: the child stays initialized once.
+      await second.close()
+      const third = await open('integration-third')
+      try {
+        const thirdList = await third.listTools()
+        expect(thirdList.tools).toHaveLength(13)
+        const e3 = await third.callTool({ name: 'echo', arguments: { message: 'from-third' } })
+        expect((e3.content ?? []).map((c) => c.text ?? '').join('')).toContain('from-third')
+      } finally {
+        await third.close().catch(() => {})
+      }
+    } finally {
+      await second.close().catch(() => {})
+    }
+  })
 })
 
 test.skipIf(!unavailable)('skips gracefully when server-everything is unavailable', () => {

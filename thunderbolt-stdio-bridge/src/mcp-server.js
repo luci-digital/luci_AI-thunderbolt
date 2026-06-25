@@ -2,11 +2,25 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-// The MCP Streamable HTTP face. Stands up a bare @modelcontextprotocol/sdk
-// StreamableHTTPServerTransport behind a minimal http.createServer on host:port
-// (default 127.0.0.1) and bridges it to the spawned stdio MCP child: HTTP-side
-// JSON-RPC messages are written to the child as NDJSON (relay.wsToFrame) and the
-// child's NDJSON stdout lines are pushed back to HTTP clients (transport.send).
+// The MCP Streamable HTTP face. Stands up a minimal http.createServer on
+// host:port (default 127.0.0.1) and bridges many HTTP MCP clients onto the ONE
+// spawned stdio MCP child.
+//
+// MULTIPLEXING. A StreamableHTTPServerTransport is STATEFUL and single-session:
+// the SDK rejects a second `initialize` POST with -32600 "Server already
+// initialized" before onmessage ever fires (see webStandardStreamableHttp.js).
+// The Thunderbolt app opens several MCP connections (a Test-Connection probe,
+// the persistent provider connection, reconnects), so one shared transport kills
+// every connection after the first. The fix: one STATELESS transport per HTTP
+// request (the SDK forbids reusing a stateless transport across requests) plus a
+// bridge-owned multiplexer that (a) forwards the FIRST initialize to the child,
+// captures its result, and answers every later client initialize FROM CACHE
+// without touching the child (the child — server-everything — rejects a second
+// initialize too); (b) remaps each client request id to a process-global id so
+// concurrent clients' colliding ids route back to the right transport; (c)
+// forwards `notifications/initialized` exactly once; (d) broadcasts the child's
+// id-less notifications to every live transport.
+//
 // Enforces bearer-before-route, CORS per the Origin allowlist, a request body
 // cap, and deterministic never-orphan teardown. Prints the
 // `http://127.0.0.1:PORT/mcp` banner to stderr once listening.
@@ -15,13 +29,13 @@
 
 const { createServer: defaultCreateServer } = require('node:http')
 const { createHash, timingSafeEqual } = require('node:crypto')
-const { randomUUID } = require('node:crypto')
 const {
   StreamableHTTPServerTransport: DefaultStreamableHTTPServerTransport,
 } = require('@modelcontextprotocol/sdk/server/streamableHttp.js')
 const { UnavailableError } = require('./errors')
 const { buildOriginAllowlist, classifyFrame, safeClassifyFrame } = require('./log')
 const { createNdjsonReader, wsToFrame } = require('./relay')
+const { createMultiplexer } = require('./mcp-multiplexer')
 const { superviseChild: defaultSuperviseChild } = require('./child')
 const { formatHostForUrl, makeCloseLatch } = require('./util')
 
@@ -133,9 +147,8 @@ const readBody = (req, cap) =>
 
 /**
  * Start the MCP Streamable HTTP face: bind, spawn the child MCP stdio server,
- * connect a bare StreamableHTTPServerTransport, and relay JSON-RPC between the
- * HTTP face and the child's NDJSON stdio. Bearer-before-route, CORS, body cap,
- * deterministic teardown, never-orphan.
+ * and multiplex many HTTP MCP clients onto the single child's NDJSON stdio.
+ * Bearer-before-route, CORS, body cap, deterministic teardown, never-orphan.
  *
  * @param {Object} opts
  * @param {string[]} opts.launch - child launch argv.
@@ -174,24 +187,21 @@ const startMcpFace = ({
 
   return new Promise((resolve, reject) => {
     const latch = makeCloseLatch()
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() })
 
-    // HTTP -> child: every JSON-RPC message the transport surfaces is written to
-    // the child's stdin as one NDJSON line. Malformed (unserializable) frames are
-    // dropped and logged by method/id only — the raw frame is never logged.
-    transport.onmessage = (message) => {
-      try {
-        supervisor.writeStdin(wsToFrame(JSON.stringify(message)))
-      } catch {
-        logger.warn('drop-http-frame', classifyFrame(message))
-      }
-    }
+    // The bridge-owned multiplexer: owns the single child's initialize cache, the
+    // global request-id remap, and the live-transport registry. `writeChild`
+    // reads `supervisor` lazily — it's declared below but always assigned before
+    // any frame can flow (the first child write happens on an HTTP request, long
+    // after this synchronous setup completes).
+    const mux = createMultiplexer({
+      writeChild: (frame) => supervisor.writeStdin(frame),
+      logger,
+    })
 
-    // child stdout NDJSON -> HTTP: each complete line is parsed and pushed to the
-    // transport, which routes it to the correct pending HTTP/SSE response. The
-    // SDK's send can reject when the target client has disconnected — a benign,
-    // per-frame condition, not a bridge fault — so swallow it (logged PII-safe)
-    // instead of letting an unhandled rejection reach the never-orphan backstop.
+    // child stdout NDJSON -> HTTP: each complete line is parsed and routed by the
+    // multiplexer to the transport that owns its id (or, for the captured init
+    // result, to every queued initialize; for id-less notifications, broadcast to
+    // every live transport). A malformed line is dropped + logged PII-safe.
     const reader = createNdjsonReader((line) => {
       const message = (() => {
         try {
@@ -201,23 +211,19 @@ const startMcpFace = ({
           return null
         }
       })()
-      if (message) {
-        Promise.resolve(transport.send(message)).catch(() =>
-          logger.warn('drop-child-frame', classifyFrame(message)),
-        )
-      }
+      if (message) mux.onChildMessage(message)
     })
 
     const server = createServer()
 
     const finishClose = latch.finishClose
 
-    // Close the transport then the http server, settling the close latch once the
-    // server's callback fires. Lingering keep-alive/stalled sockets are force-closed
-    // so finishClose fires promptly (server.close otherwise waits indefinitely).
-    // Shared by child-exit teardown and the resolved close().
+    // Close every live transport then the http server, settling the close latch
+    // once the server's callback fires. Lingering keep-alive/stalled sockets are
+    // force-closed so finishClose fires promptly (server.close otherwise waits
+    // indefinitely). Shared by child-exit teardown and the resolved close().
     const shutdownHttp = () => {
-      transport.close()
+      mux.closeAll()
       server.close(finishClose)
       if (typeof server.closeAllConnections === 'function') server.closeAllConnections()
     }
@@ -249,22 +255,30 @@ const startMcpFace = ({
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
       // MCP Streamable HTTP clients send `Mcp-Protocol-Version` on every request
       // after initialize; it must be allow-listed or the browser's preflight fails.
-      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Mcp-Session-Id, Mcp-Protocol-Version, Accept')
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Authorization, Content-Type, Mcp-Session-Id, Mcp-Protocol-Version, Accept',
+      )
       res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id')
     }
 
-    // Hand a request to the transport, swallowing a benign rejection (a client
-    // that disconnected mid-response). The SDK can reject from handleRequest the
-    // same way it can from send; a stale client is not a fatal bridge fault, so
-    // it must never reach the never-orphan backstop. Reply 500 only if the socket
-    // is still writable; otherwise the response is already gone — just drop. The
-    // caller-supplied thunk runs handleRequest with the right arity (the POST path
-    // always passes its parsed body, possibly undefined; GET/DELETE pass none).
-    const dispatch = (res, handle) => {
-      Promise.resolve(handle()).catch((err) => {
-        logger.warn('drop-http-frame', { errorCode: err && err.code })
-        if (res.writable && !res.writableEnded && !res.headersSent) replyStatus(res, 500)
-      })
+    // Hand a request to a fresh per-request transport, swallowing a benign
+    // rejection (a client that disconnected mid-response). The SDK can reject from
+    // handleRequest the same way it can from send; a stale client is not a fatal
+    // bridge fault, so it must never reach the never-orphan backstop. Reply 500
+    // only if the socket is still writable; otherwise the response is already gone
+    // — just drop. The caller-supplied thunk runs handleRequest with the right
+    // arity (the POST path always passes its parsed body, possibly undefined;
+    // GET/DELETE pass none). The transport is registered for the lifetime of the
+    // request and unregistered once handleRequest settles.
+    const dispatch = (res, makeHandle) => {
+      const transport = mux.createTransport(StreamableHTTPServerTransport)
+      Promise.resolve(makeHandle(transport))
+        .catch((err) => {
+          logger.warn('drop-http-frame', { errorCode: err && err.code })
+          if (res.writable && !res.writableEnded && !res.headersSent) replyStatus(res, 500)
+        })
+        .finally(() => mux.releaseTransport(transport))
     }
 
     server.on('request', async (req, res) => {
@@ -313,11 +327,11 @@ const startMcpFace = ({
           replyStatus(res, 400)
           return
         }
-        dispatch(res, () => transport.handleRequest(req, res, parsed))
+        dispatch(res, (transport) => transport.handleRequest(req, res, parsed))
         return
       }
 
-      dispatch(res, () => transport.handleRequest(req, res))
+      dispatch(res, (transport) => transport.handleRequest(req, res))
     })
 
     server.on('error', (err) => {

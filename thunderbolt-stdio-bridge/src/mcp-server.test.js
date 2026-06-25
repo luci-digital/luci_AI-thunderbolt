@@ -40,7 +40,7 @@ const makeFakeServer = () => {
   return server
 }
 
-/** Fake StreamableHTTPServerTransport. */
+/** Fake StreamableHTTPServerTransport (one per HTTP request under the multiplexer). */
 const makeFakeTransport = () => {
   const transport = {
     onmessage: null,
@@ -80,16 +80,34 @@ const makeFakeSupervisor = () => {
 /** Build the injectable deps + capture the wired supervise hooks. */
 const makeHarness = (overrides = {}) => {
   const server = makeFakeServer()
-  const transport = makeFakeTransport()
   const { supervisor, calls } = makeFakeSupervisor()
   const hooks = {}
+  // The multiplexer creates one stateless transport per HTTP request. These
+  // HTTP-face tests fire a single request each and exercise the shell (routing,
+  // security, relay wiring), so the fake class returns ONE shared instance: a
+  // test can drive its onmessage and assert its send/handleRequest/close exactly
+  // as before. The per-request fan-out (id remap, init cache, broadcast) is
+  // covered against the real multiplexer in mcp-multiplexer.test.js and end-to-end
+  // in mcp-server.integration.test.js.
+  const transport = makeFakeTransport()
+  const transports = []
+  // When set, the next dispatched request's handleRequest never settles, modelling
+  // a long-lived open stream so its transport stays registered (LIVE) through
+  // teardown — used to assert closeAll() closes live transports. Auto-clears.
+  const hold = { next: false }
+  class FakeTransport {
+    constructor() {
+      if (hold.next) {
+        hold.next = false
+        transport.handleRequest = mock(() => new Promise(() => {}))
+      }
+      transports.push(transport)
+      return transport
+    }
+  }
   const deps = {
     createServer: mock(() => server),
-    StreamableHTTPServerTransport: class {
-      constructor() {
-        return transport
-      }
-    },
+    StreamableHTTPServerTransport: FakeTransport,
     superviseChild: mock((opts) => {
       hooks.onStdout = opts.onStdout
       hooks.onExit = opts.onExit
@@ -98,7 +116,7 @@ const makeHarness = (overrides = {}) => {
     }),
     ...overrides,
   }
-  return { server, transport, supervisor, calls, hooks, deps }
+  return { server, transport, transports, hold, supervisor, calls, hooks, deps }
 }
 
 const baseOpts = (logger, deps, extra = {}) => ({
@@ -305,7 +323,10 @@ test('a present, disallowed Origin POST is hard-rejected 403 server-side and NOT
   await startMcpFace(baseOpts(logger, deps))
   // A cross-origin simple POST is not preflighted; the server-side gate must
   // reject it (CSRF defense) rather than merely withholding the ACAO header.
-  const req = makeReq({ headers: { origin: 'http://evil.com' }, body: '{"jsonrpc":"2.0","method":"tools/call","id":1}' })
+  const req = makeReq({
+    headers: { origin: 'http://evil.com' },
+    body: '{"jsonrpc":"2.0","method":"tools/call","id":1}',
+  })
   const res = makeRes()
   await fireRequest(server, req, res)
   expect(res.statusCode).toBe(403)
@@ -327,7 +348,10 @@ test('an allowed (loopback) Origin POST passes the gate and is dispatched', asyn
   const logger = makeLogger()
   const { server, transport, deps } = makeHarness()
   await startMcpFace(baseOpts(logger, deps))
-  const req = makeReq({ headers: { origin: 'http://localhost:5173' }, body: '{"jsonrpc":"2.0","method":"ping","id":1}' })
+  const req = makeReq({
+    headers: { origin: 'http://localhost:5173' },
+    body: '{"jsonrpc":"2.0","method":"ping","id":1}',
+  })
   const res = makeRes()
   await fireRequest(server, req, res)
   expect(transport.handleRequest).toHaveBeenCalledTimes(1)
@@ -428,35 +452,67 @@ test('a rejecting transport.handleRequest is swallowed + logged, never escapes',
   expect(logger.warn).toHaveBeenCalled()
 })
 
-test('HTTP onmessage relays to child stdin as one NDJSON line', async () => {
+test('HTTP onmessage relays a client request to child stdin as one NDJSON line (id remapped)', async () => {
   const logger = makeLogger()
-  const { transport, calls, deps } = makeHarness()
+  const { server, transport, calls, deps } = makeHarness()
   await startMcpFace(baseOpts(logger, deps))
+  // A request goes through a per-request transport: fire one so the multiplexer
+  // wires its onmessage, then drive that handler.
+  await fireRequest(server, makeReq({ body: '{"jsonrpc":"2.0","method":"ping","id":7}' }), makeRes())
   transport.onmessage({ jsonrpc: '2.0', method: 'ping', id: 7 })
   expect(calls.stdin).toHaveLength(1)
-  expect(calls.stdin[0]).toBe('{"jsonrpc":"2.0","method":"ping","id":7}\n')
+  // The client id (7) is remapped to a process-global id so concurrent clients
+  // can't collide; the method is forwarded verbatim.
+  const frame = JSON.parse(calls.stdin[0])
+  expect(frame.method).toBe('ping')
+  expect(typeof frame.id).toBe('string')
+  expect(frame.id).toMatch(/^b:/)
+  expect(calls.stdin[0].endsWith('\n')).toBe(true)
 })
 
-test('child stdout NDJSON lines are parsed and sent to the transport', async () => {
+test('a child response routes back to the owning transport with the original client id', async () => {
   const logger = makeLogger()
-  const { transport, hooks, deps } = makeHarness()
+  const { server, transport, calls, hooks, deps } = makeHarness()
   await startMcpFace(baseOpts(logger, deps))
-  hooks.onStdout(Buffer.from('{"jsonrpc":"2.0","result":{},"id":7}\n'))
+  // Forward a client request (id 7); the mux remaps it to a global id and
+  // remembers the owning transport.
+  await fireRequest(server, makeReq({ body: '{"jsonrpc":"2.0","method":"tools/list","id":7}' }), makeRes())
+  transport.onmessage({ jsonrpc: '2.0', method: 'tools/list', id: 7 })
+  const globalId = JSON.parse(calls.stdin[0]).id
+  // The child answers under the global id; the mux routes it home as id 7.
+  hooks.onStdout(Buffer.from(`${JSON.stringify({ jsonrpc: '2.0', result: { tools: [] }, id: globalId })}\n`))
   expect(transport.send).toHaveBeenCalledTimes(1)
-  expect(transport.send.mock.calls[0][0]).toEqual({ jsonrpc: '2.0', result: {}, id: 7 })
+  expect(transport.send.mock.calls[0][0]).toEqual({ jsonrpc: '2.0', result: { tools: [] }, id: 7 })
+})
+
+test('an id-less child notification is broadcast to a live transport', async () => {
+  const logger = makeLogger()
+  const { server, transport, hold, hooks, deps } = makeHarness()
+  await startMcpFace(baseOpts(logger, deps))
+  // Hold a GET (SSE) request open so its transport stays LIVE (registered) and can
+  // receive a server->client notification.
+  hold.next = true
+  await fireRequest(server, makeReq({ method: 'GET', url: '/mcp' }), makeRes())
+  hooks.onStdout(Buffer.from('{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}\n'))
+  expect(transport.send).toHaveBeenCalledTimes(1)
+  expect(transport.send.mock.calls[0][0]).toEqual({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' })
 })
 
 test('a rejecting transport.send (disconnected client) is swallowed + logged, never escapes', async () => {
   const logger = makeLogger()
-  const { transport, hooks, deps } = makeHarness()
-  // A stale/disconnected client makes the SDK reject; this must not surface as an
-  // unhandledRejection (which the CLI's onFatal backstop would treat as fatal).
-  transport.send = mock(() => Promise.reject(Object.assign(new Error('closed'), { code: 'ERR_CLOSED' })))
+  const { server, transport, calls, hooks, deps } = makeHarness()
   const rejections = []
   const onRejection = (err) => rejections.push(err)
   process.on('unhandledRejection', onRejection)
   await startMcpFace(baseOpts(logger, deps))
-  hooks.onStdout(Buffer.from('{"jsonrpc":"2.0","result":{},"id":7}\n'))
+  // Forward a client request so the mux owns a pending route to this transport.
+  await fireRequest(server, makeReq({ body: '{"jsonrpc":"2.0","method":"tools/list","id":7}' }), makeRes())
+  transport.onmessage({ jsonrpc: '2.0', method: 'tools/list', id: 7 })
+  const globalId = JSON.parse(calls.stdin[0]).id
+  // A stale/disconnected client makes the SDK reject on send; this must not surface
+  // as an unhandledRejection (which the CLI's onFatal backstop would treat fatal).
+  transport.send = mock(() => Promise.reject(Object.assign(new Error('closed'), { code: 'ERR_CLOSED' })))
+  hooks.onStdout(Buffer.from(`${JSON.stringify({ jsonrpc: '2.0', result: {}, id: globalId })}\n`))
   await new Promise((r) => setTimeout(r, 0))
   process.removeListener('unhandledRejection', onRejection)
   expect(rejections).toHaveLength(0)
@@ -473,10 +529,14 @@ test('a malformed child stdout line is dropped + logged by method/id only, never
   expect(logger.warn).toHaveBeenCalled()
 })
 
-test('child exit closes the http server + transport and resolves close()', async () => {
+test('child exit closes the http server + every live transport and resolves close()', async () => {
   const logger = makeLogger()
-  const { server, transport, hooks, deps } = makeHarness()
+  const { server, transport, hold, hooks, deps } = makeHarness()
   await startMcpFace(baseOpts(logger, deps))
+  // Hold a request open (handleRequest never settles) so its transport stays live
+  // through teardown — closeAll must then close it.
+  hold.next = true
+  await fireRequest(server, makeReq({ method: 'GET', url: '/mcp' }), makeRes())
   hooks.onExit({ code: 0, signal: null })
   expect(transport.close).toHaveBeenCalled()
   expect(server.close).toHaveBeenCalled()
@@ -500,10 +560,12 @@ test('child exit also force-closes lingering connections (closeAllConnections)',
   expect(server.closeAllConnections).toHaveBeenCalled()
 })
 
-test('close() closes transport, stops the child, and closes the server: no orphan', async () => {
+test('close() closes every live transport, stops the child, and closes the server: no orphan', async () => {
   const logger = makeLogger()
-  const { server, transport, calls, deps } = makeHarness()
+  const { server, transport, hold, calls, deps } = makeHarness()
   const face = await startMcpFace(baseOpts(logger, deps))
+  hold.next = true
+  await fireRequest(server, makeReq({ method: 'GET', url: '/mcp' }), makeRes())
   await face.close()
   expect(transport.close).toHaveBeenCalled()
   expect(calls.stopped).toBe(1)
