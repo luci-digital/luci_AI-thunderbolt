@@ -28,12 +28,14 @@ const looksLikeFlag = (token) => token !== undefined && token.startsWith('-')
  * @returns {ParsedArgs | { help: 'bridge' } | { version: true }}
  */
 const parseBridgeArgs = (argv) => {
-  if (argv.includes('--help') || argv.includes('-h')) return { help: 'bridge' }
-  if (argv.includes('--version') || argv.includes('-V')) return { version: true }
-
   const delimiterIndex = argv.indexOf('--')
   const flagArgs = delimiterIndex === -1 ? argv : argv.slice(0, delimiterIndex)
   const launch = delimiterIndex === -1 ? [] : argv.slice(delimiterIndex + 1)
+
+  // Help/version only count as zeus flags BEFORE `--`; a `--help`/`--version` in
+  // the child launch argv (after `--`) is the child's, passed through verbatim.
+  if (flagArgs.includes('--help') || flagArgs.includes('-h')) return { help: 'bridge' }
+  if (flagArgs.includes('--version') || flagArgs.includes('-V')) return { version: true }
 
   /** @type {Partial<ParsedArgs>} */
   const opts = {

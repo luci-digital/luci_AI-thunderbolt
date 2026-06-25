@@ -55,6 +55,15 @@ test('--mode acp -- node agent.js → mode acp, launch=[node, agent.js]', () => 
   expect(parsed.launch).toEqual(['node', 'agent.js'])
 })
 
+test('--help/--version AFTER `--` belong to the child, not zeus', () => {
+  // The delimiter ends zeus's flags; a `--help` in the launch argv must pass
+  // through to the child verbatim, not short-circuit to bridge help.
+  const parsed = parseBridgeArgs(['--mode', 'acp', '--', 'node', 'agent.js', '--help'])
+  expect(parsed.help).toBeUndefined()
+  expect(parsed.launch).toEqual(['node', 'agent.js', '--help'])
+  expect(parseBridgeArgs(['--mode', 'mcp', '--', 'srv', '--version']).launch).toContain('--version')
+})
+
 test('--mode mcp --tunnel -- srv → tunnel true', () => {
   expect(parseBridgeArgs(['--mode', 'mcp', '--tunnel', '--', 'srv']).tunnel).toBe(true)
 })
