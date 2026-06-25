@@ -106,7 +106,7 @@ const parseArgs = (argv) => {
   if (token === '--version' || token === '-V') return { version: true }
   if (token === 'bridge') {
     const parsed = parseBridgeArgs(rest)
-    if ('help' in parsed || 'version' in parsed) return parsed
+    if (parsed.help || parsed.version) return parsed
     return { ...parsed, command: 'bridge' }
   }
   throw new UsageError(`unknown command: ${token}`)

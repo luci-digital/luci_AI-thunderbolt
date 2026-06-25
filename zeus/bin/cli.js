@@ -3,10 +3,11 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-// Composition root. Thin wiring only: parse argv, build the logger, validate,
-// then dispatch to the ACP or MCP face, install signal handlers, and translate
-// every outcome into a sysexits exit code. Every external collaborator is
-// injectable via a single `deps` object so the whole root is testable with no
+// Composition root. Thin wiring only: parse argv, short-circuit error/help/
+// version, then dispatch to the resolved subcommand. The `bridge` command builds
+// the logger, installs signal handlers, starts the ACP or MCP face, and
+// translates every outcome into a sysexits exit code. Every external collaborator
+// is injectable via a single `deps` object so the whole root is testable with no
 // real sockets.
 
 'use strict'
@@ -54,25 +55,23 @@ Options:
   -h, --help           print this help and exit
   -V, --version        print the version and exit`
 
+/** Usage text keyed by the parser's `help` intent (`'root'` | the command name). */
+const HELP = { root: ROOT_HELP_TEXT, bridge: BRIDGE_HELP_TEXT }
+
 /**
- * Run the bridge CLI. Returns once the process outcome is decided; all exits go
- * through the injected `exit` so tests assert the code without terminating.
+ * Run the `bridge` subcommand: build the logger, warn on insecure flags, wire the
+ * never-orphan lifecycle (signal handlers + an uncaught-error backstop), and start
+ * the ACP or MCP face. Returns once the outcome is decided; the process is kept
+ * alive by the open server/sockets until a signal or child exit closes the face.
  *
- * @param {Object} [opts]
- * @param {string[]} [opts.argv] - argv without node/script (process.argv.slice(2)).
- * @param {NodeJS.WritableStream} [opts.stdout] - help/version sink only.
- * @param {NodeJS.WritableStream} [opts.stderr] - all diagnostics + banner.
- * @param {(code: number) => void} [opts.exit]
- * @param {Object} [opts.deps] - injectable { startBridge, startMcpFace, startTunnel, generateBearer, makeLogger, on, removeListener }.
+ * @param {import('../src/args').ParsedArgs} parsed - resolved bridge options.
+ * @param {Object} io
+ * @param {NodeJS.WritableStream} io.stderr - all diagnostics + banner.
+ * @param {(code: number) => void} io.exit
+ * @param {Object} io.deps - injectable { startBridge, startMcpFace, startTunnel, generateBearer, makeLogger, on, removeListener }.
  * @returns {Promise<void>}
  */
-const run = async ({
-  argv = process.argv.slice(2),
-  stdout = process.stdout,
-  stderr = process.stderr,
-  exit = process.exit,
-  deps = {},
-} = {}) => {
+const runBridge = async (parsed, { stderr, exit, deps }) => {
   const _startBridge = deps.startBridge ?? startBridge
   const _startMcpFace = deps.startMcpFace ?? startMcpFace
   const _startTunnel = deps.startTunnel ?? startTunnel
@@ -80,28 +79,6 @@ const run = async ({
   const _makeLogger = deps.makeLogger ?? makeLogger
   const onSignal = deps.on ?? process.on.bind(process)
   const offSignal = deps.removeListener ?? process.removeListener.bind(process)
-
-  // Parse argv. Help/version short-circuit to stdout (no child, no framing).
-  const parsed = (() => {
-    try {
-      return parseArgs(argv)
-    } catch (err) {
-      return { error: err }
-    }
-  })()
-
-  if (parsed.error) {
-    stderr.write(`${toMessage(parsed.error)}\n`)
-    return exit(toExitCode(parsed.error))
-  }
-  if (parsed.help) {
-    stdout.write(`${parsed.help === 'root' ? ROOT_HELP_TEXT : BRIDGE_HELP_TEXT}\n`)
-    return exit(EX.OK)
-  }
-  if (parsed.version) {
-    stdout.write(`${BRIDGE_VERSION}\n`)
-    return exit(EX.OK)
-  }
 
   const logger = _makeLogger({ json: parsed.json, verbose: parsed.verbose, sink: stderr })
 
@@ -169,9 +146,7 @@ const run = async ({
       })
       live.face = face
       // ACP face resolves on child exit via its own close(); cli derives the code
-      // from the child exit propagated by server.js. The face stays alive until a
-      // signal or child exit closes it; run() returns and the process is kept
-      // alive by the open server/sockets.
+      // from the child exit propagated by server.js.
       return
     }
 
@@ -201,6 +176,56 @@ const run = async ({
     logger.error('fatal', { code: err instanceof UnavailableError ? err.code : 'INTERNAL' })
     stderr.write(`${toMessage(err)}\n`)
     return exit(toExitCode(err))
+  }
+}
+
+/**
+ * CLI composition root. Parse argv, short-circuit error/help/version, then
+ * dispatch to the resolved subcommand. All exits go through the injected `exit`
+ * so tests assert the code without terminating.
+ *
+ * @param {Object} [opts]
+ * @param {string[]} [opts.argv] - argv without node/script (process.argv.slice(2)).
+ * @param {NodeJS.WritableStream} [opts.stdout] - help/version sink only.
+ * @param {NodeJS.WritableStream} [opts.stderr] - all diagnostics + banner.
+ * @param {(code: number) => void} [opts.exit]
+ * @param {Object} [opts.deps] - injectable collaborators forwarded to the subcommand.
+ * @returns {Promise<void>}
+ */
+const run = async ({
+  argv = process.argv.slice(2),
+  stdout = process.stdout,
+  stderr = process.stderr,
+  exit = process.exit,
+  deps = {},
+} = {}) => {
+  const parsed = (() => {
+    try {
+      return parseArgs(argv)
+    } catch (err) {
+      return { error: err }
+    }
+  })()
+
+  if (parsed.error) {
+    stderr.write(`${toMessage(parsed.error)}\n`)
+    return exit(toExitCode(parsed.error))
+  }
+  if (parsed.help) {
+    stdout.write(`${HELP[parsed.help]}\n`)
+    return exit(EX.OK)
+  }
+  if (parsed.version) {
+    stdout.write(`${BRIDGE_VERSION}\n`)
+    return exit(EX.OK)
+  }
+
+  // Dispatch the resolved subcommand. The parser rejects unknown commands, so
+  // `parsed.command` is always a known case here; a future `zeus <next>` is a new
+  // `case` + a `run<Next>` — the bridge path stays untouched.
+  switch (parsed.command) {
+    case 'bridge':
+      return runBridge(parsed, { stderr, exit, deps })
   }
 }
 
