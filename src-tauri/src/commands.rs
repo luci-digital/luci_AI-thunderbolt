@@ -136,12 +136,19 @@ fn map_install_output(output: std::process::Output) -> Result<String, String> {
 pub async fn install_bridge() -> Result<String, String> {
     let output = tauri::async_runtime::spawn_blocking(|| {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-        // `set -o pipefail` so a failed `curl` (404 / no network) fails the whole
-        // pipeline instead of `bash` succeeding on empty stdin — otherwise a broken
-        // download reports a false "installed".
+        // Two-layer invocation, each layer doing one job:
+        //   - Outer `$SHELL -lc` runs as a login shell to load the user's PATH
+        //     (nvm/brew node) — but `$SHELL` may be fish or another non-POSIX shell.
+        //   - Inner `bash -c` provides `set -o pipefail`, which is bash/zsh-only
+        //     syntax that fish would reject. `bash -c '...'` is a plain command every
+        //     login shell can exec, and the inner bash inherits the login PATH.
+        // pipefail makes a failed `curl` (404 / no network) fail the whole pipeline
+        // instead of `bash` succeeding on empty stdin — otherwise a broken download
+        // reports a false "installed". ZEUS_INSTALL_CMD has no single quotes, so the
+        // single-quoted nesting stays clean.
         std::process::Command::new(shell)
             .arg("-lc")
-            .arg(format!("set -o pipefail; {ZEUS_INSTALL_CMD}"))
+            .arg(format!("bash -c 'set -o pipefail; {ZEUS_INSTALL_CMD}'"))
             .output()
     })
     .await
