@@ -36,9 +36,13 @@ jobs:
   build:
     name: Build & smoke-test zeus.cjs
     runs-on: ubuntu-24.04
-    # The tag job needs write to publish the release; everything else stays read.
+    # `contents: write` is required by the tag-publish step (gh release create/upload).
+    # GitHub Actions forbids ${{ }} expressions in `permissions`, so this is a static
+    # literal. Safe: the publish step is gated by `if: startsWith(github.ref,
+    # 'refs/tags/zeus-v')`, so non-tag runs never write, and fork-PR tokens are
+    # read-only regardless of this setting.
     permissions:
-      contents: ${{ startsWith(github.ref, 'refs/tags/zeus-v') && 'write' || 'read' }}
+      contents: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
