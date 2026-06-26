@@ -40,6 +40,43 @@ import { FileChip } from './file-chip'
 
 /** Max size for a chat attachment (PDF) stored locally and sent to the agent. */
 const maxAttachmentBytes = 25 * 1024 * 1024
+const maxAttachmentCount = 10
+
+/** Mime types accepted as attachments. PDFs and images deliver natively to
+ *  capable models; docx / markdown / text are accepted too and fall back to a
+ *  user-triggered "convert to text" when a model can't read them natively. */
+const acceptedAttachmentMimeTypes = new Set([
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/markdown',
+  'text/plain',
+])
+
+/** Extension fallback for when the browser reports an empty/odd mime type
+ *  (common for .md). */
+const acceptedAttachmentExtensions = [
+  '.pdf',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.webp',
+  '.gif',
+  '.docx',
+  '.md',
+  '.markdown',
+  '.txt',
+]
+
+/** `accept` attribute string for the file picker. */
+const attachmentAcceptAttr = [...acceptedAttachmentMimeTypes, ...acceptedAttachmentExtensions].join(',')
+
+const isAcceptedAttachment = (file: File): boolean =>
+  acceptedAttachmentMimeTypes.has(file.type) ||
+  acceptedAttachmentExtensions.some((ext) => file.name.toLowerCase().endsWith(ext))
 
 /**
  * Extract a human-readable display string from a connection error.
@@ -313,29 +350,40 @@ export const ChatPromptInput = forwardRef<ChatPromptInputRef, ChatPromptInputPro
 
     // Store dropped/picked PDFs locally (IndexedDB) and add reference-only
     // attachments. Bytes never enter a message part — only the localFileId ref.
-    const addFiles = useCallback(async (files: File[]) => {
-      setAttachError(null)
-      for (const file of files) {
-        if (file.type !== 'application/pdf') {
-          setAttachError('Only PDF files are supported right now.')
-          continue
+    const addFiles = useCallback(
+      async (files: File[]) => {
+        setAttachError(null)
+        // `count` tracks the running total as we add through the loop, since
+        // `setAttachments` won't have flushed mid-iteration.
+        let count = attachments.length
+        for (const file of files) {
+          if (count >= maxAttachmentCount) {
+            setAttachError(`You can attach up to ${maxAttachmentCount} files.`)
+            break
+          }
+          if (!isAcceptedAttachment(file)) {
+            setAttachError(`"${file.name}" isn't a supported file type.`)
+            continue
+          }
+          if (file.size > maxAttachmentBytes) {
+            setAttachError(`"${file.name}" is too large (max ${maxAttachmentBytes / 1024 / 1024}MB).`)
+            continue
+          }
+          const localFileId = crypto.randomUUID()
+          await putAttachment({
+            id: localFileId,
+            filename: file.name,
+            mimeType: file.type,
+            size: file.size,
+            createdAt: Date.now(),
+            blob: file,
+          })
+          setAttachments((prev) => [...prev, { localFileId, filename: file.name, mimeType: file.type }])
+          count++
         }
-        if (file.size > maxAttachmentBytes) {
-          setAttachError(`"${file.name}" is too large (max ${maxAttachmentBytes / 1024 / 1024}MB).`)
-          continue
-        }
-        const localFileId = crypto.randomUUID()
-        await putAttachment({
-          id: localFileId,
-          filename: file.name,
-          mimeType: file.type,
-          size: file.size,
-          createdAt: Date.now(),
-          blob: file,
-        })
-        setAttachments((prev) => [...prev, { localFileId, filename: file.name, mimeType: file.type }])
-      }
-    }, [])
+      },
+      [attachments.length],
+    )
 
     const removeAttachment = useCallback((localFileId: string) => {
       setAttachments((prev) => prev.filter((a) => a.localFileId !== localFileId))
@@ -492,7 +540,7 @@ export const ChatPromptInput = forwardRef<ChatPromptInputRef, ChatPromptInputPro
           <input
             ref={fileInputRef}
             type="file"
-            accept="application/pdf"
+            accept={attachmentAcceptAttr}
             multiple
             hidden
             onChange={(e) => {

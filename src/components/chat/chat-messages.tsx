@@ -10,6 +10,8 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useCurrentChatSession } from '@/chats/chat-store'
 import { useChat as useChat_default } from '@ai-sdk/react'
 import { shouldUseViewportPositioning } from '@/chats/use-chat-scroll-handler'
+import { getAttachments, isAttachmentPart } from '@/lib/attachments'
+import { hasTransformer } from '@/files/transformers'
 import { useHaptics } from '@/hooks/use-haptics'
 
 type ChatMessagesProps = {
@@ -19,7 +21,7 @@ type ChatMessagesProps = {
 export const ChatMessages = ({ useChat = useChat_default }: ChatMessagesProps) => {
   const { chatInstance, retryCount, retriesExhausted } = useCurrentChatSession()
 
-  const { error: chatError, status, messages, regenerate } = useChat({ chat: chatInstance })
+  const { error: chatError, status, messages, regenerate, setMessages } = useChat({ chat: chatInstance })
   const { triggerNotification } = useHaptics()
 
   const isStreaming = status === 'streaming'
@@ -37,6 +39,35 @@ export const ChatMessages = ({ useChat = useChat_default }: ChatMessagesProps) =
     () => messages.findLast((m) => m.role === 'assistant' && (m.parts?.length ?? 0) > 0),
     [messages],
   )
+
+  // "Convert to text & retry": the failed turn carries attachment(s) we can
+  // re-deliver as extracted text (a transformer exists and they aren't already
+  // text). Marking `deliverAs: 'text'` on the user message's parts makes the
+  // next hydration emit text instead of native bytes; regenerate() re-runs it.
+  const lastUserMessage = useMemo(() => messages.findLast((m) => m.role === 'user'), [messages])
+  const canConvertToText = useMemo(
+    () =>
+      !!lastUserMessage &&
+      getAttachments(lastUserMessage).some((a) => a.deliverAs !== 'text' && hasTransformer(a.mimeType, 'text')),
+    [lastUserMessage],
+  )
+  const handleConvertToTextAndRetry = () => {
+    setMessages((prev) =>
+      prev.map((message) =>
+        message.id === lastUserMessage?.id
+          ? {
+              ...message,
+              parts: message.parts.map((part) =>
+                isAttachmentPart(part) && hasTransformer(part.data.mimeType, 'text')
+                  ? { ...part, data: { ...part.data, deliverAs: 'text' as const } }
+                  : part,
+              ),
+            }
+          : message,
+      ),
+    )
+    regenerate()
+  }
 
   // After the user sends a message, AI SDK reports status `submitted` until the
   // first assistant delta arrives. During that window there is no assistant
@@ -96,6 +127,7 @@ export const ChatMessages = ({ useChat = useChat_default }: ChatMessagesProps) =
           retriesExhausted={retriesExhausted}
           error={chatError}
           onRetry={() => regenerate()}
+          onRetryAsText={canConvertToText ? handleConvertToTextAndRetry : undefined}
         />
       )}
     </div>

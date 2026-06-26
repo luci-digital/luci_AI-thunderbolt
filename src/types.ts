@@ -46,6 +46,14 @@ export type AttachmentData = {
   localFileId: string
   filename: string
   mimeType: string
+  /**
+   * How this attachment should be delivered to the model. Defaults to native
+   * (raw bytes as a file part). Set to `'text'` by the "convert to text & retry"
+   * remediation when a model couldn't read the native file — hydration then runs
+   * the client-side transformer and sends extracted text instead. Persisted on
+   * the reference so it survives `regenerate()` and reload.
+   */
+  deliverAs?: 'text'
 }
 
 /** Custom `data-*` parts on Thunderbolt messages (`data-attachment` → {@link AttachmentData}). */

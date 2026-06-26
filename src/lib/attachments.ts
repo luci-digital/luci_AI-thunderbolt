@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+import { getTransformer } from '@/files/transformers'
 import type { AttachmentData, ThunderboltUIMessage } from '@/types'
 import { getAttachment } from './file-blob-storage'
 
@@ -69,11 +70,17 @@ export const hydrateAttachmentsAsBase64 = async (attachments: AttachmentData[]):
 
 /**
  * Built-in (AI SDK) transport hydration: replace reference-only attachment
- * parts with AI SDK `file` parts whose bytes are inlined as a data URL, so
- * `convertToModelMessages` forwards them to the model (e.g. an Anthropic PDF
- * document block). Bytes are read from IndexedDB at send time — the persisted
+ * parts with the bytes (or extracted text) so `convertToModelMessages` forwards
+ * them to the model. Bytes are read from IndexedDB at send time — the persisted
  * message keeps only the reference. Attachments missing on this device are left
  * as the reference part (which `convertToModelMessages` drops from model input).
+ *
+ * Delivery per attachment (see {@link AttachmentData.deliverAs}):
+ *   - default → AI SDK `file` part, bytes inlined as a data URL (e.g. an
+ *     Anthropic PDF document block) — the native-first path.
+ *   - `'text'` → run the client-side transformer and emit a `text` part instead
+ *     (the "convert to text & retry" remediation for models that can't read the
+ *     native file). Falls back to the file part if no transformer is registered.
  */
 export const hydrateAttachmentsAsFileParts = async (
   messages: ThunderboltUIMessage[],
@@ -91,6 +98,14 @@ export const hydrateAttachmentsAsFileParts = async (
           const file = await getAttachment(part.data.localFileId)
           if (!file) {
             return part
+          }
+          if (part.data.deliverAs === 'text') {
+            const transformer = await getTransformer(part.data.mimeType, 'text')
+            if (transformer) {
+              const { text } = await transformer(file)
+              return { type: 'text' as const, text: `[Attachment: ${part.data.filename}]\n\n${text}` }
+            }
+            // No transformer for this type — fall through to native bytes.
           }
           const url = await blobToDataUrl(file.blob)
           return { type: 'file' as const, mediaType: part.data.mimeType, filename: part.data.filename, url }
