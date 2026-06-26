@@ -98,6 +98,11 @@ jobs:
         # verifies the downloaded bundle against it before installing.
         run: |
           ( cd dist && shasum -a 256 zeus.cjs > zeus.cjs.sha256 )
-          gh release create "${GITHUB_REF_NAME}" \
-            dist/zeus.cjs dist/zeus.cjs.sha256 \
-            --title "${GITHUB_REF_NAME}" --generate-notes
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" \
+              dist/zeus.cjs dist/zeus.cjs.sha256 --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              dist/zeus.cjs dist/zeus.cjs.sha256 \
+              --title "${GITHUB_REF_NAME}" --generate-notes
+          fi
