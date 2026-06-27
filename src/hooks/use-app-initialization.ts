@@ -16,6 +16,11 @@ import { isSsoMode } from '@/lib/auth-mode'
 import { createAuthenticatedClient } from '@/lib/http'
 import { beginInitRun, getInitTimingPayload, recordInitStep } from '@/lib/init-timing'
 import { getDatabasePath, getDatabaseType, getPlatform, isIndexedDbAvailable } from '@/lib/platform'
+import {
+  isGlobalCompletionFlagSet,
+  migrateEncryptionKeysIfNeeded,
+  migrateLocalStorageIfNeeded,
+} from '@/migrations/pre-workspaces-attach'
 import { initPosthog, trackError, trackEvent } from '@/lib/posthog'
 import { resolveBootTrustDomain } from '@/lib/resolve-boot-trust-domain'
 import { TrayManager } from '@/lib/tray'
@@ -160,6 +165,39 @@ const executeInitializationSteps = async (httpClient?: HttpClient): Promise<Hand
   }
   useTrustDomainRegistry.getState().activateServer(resolution.serverEntry)
 
+  // Pre-Workspaces v1 data migration — steps 1 + 2. Bring legacy un-namespaced
+  // localStorage and IndexedDB key-store state into the per-server namespaced
+  // layout the new build expects, BEFORE any code reads from them. Step 3 (the
+  // SQLite ATTACH) needs an authenticated session and runs in `runPostAuthBootstrap`.
+  // Step 1 (sync) — auth token + device id must be in the namespaced key by the
+  // time HTTP client / Better Auth read them. Telemetry is deferred to after the
+  // PostHog init below — `trackEvent` no-ops before the client exists, and this
+  // is exactly the cohort we most want telemetry from.
+  //
+  // Both steps are gated on the device-global completion flag: once ANY server
+  // has consumed the legacy state, neither step has anything legitimate to do
+  // (legacy keys are deleted after the first migration), and skipping avoids
+  // the wasted localStorage/IDB round-trips on every subsequent boot.
+  const migrationServerId = resolution.serverEntry.serverId
+  const migrationAlreadyCompleted = isGlobalCompletionFlagSet()
+  const storageMigration = migrationAlreadyCompleted
+    ? { migratedToken: false, migratedDeviceId: false }
+    : migrateLocalStorageIfNeeded(migrationServerId)
+  // Step 2 (async) — encryption keys. Wrapped in try/catch so a failure here
+  // never blocks app boot; users hit re-enrolment via the standard E2EE setup
+  // flow if their keys can't be migrated, which is preferable to a hard error
+  // screen during the rollout window.
+  let keyMigration: { migrated: boolean; entryCount: number } | null = null
+  let keyMigrationError: unknown = null
+  if (!migrationAlreadyCompleted) {
+    try {
+      keyMigration = await migrateEncryptionKeysIfNeeded(migrationServerId)
+    } catch (error) {
+      console.error('Failed to migrate pre-Workspaces encryption keys:', error)
+      keyMigrationError = error
+    }
+  }
+
   // Background refresh of /v1/config for returning server-mode boots — keeps cached UI flags
   // (e2eeEnabled, allowAnonUsers, minAppVersion, etc.) current. First-boot already fetched
   // inside the resolver, so we skip the duplicate call. Non-blocking by design: offline keeps
@@ -276,6 +314,26 @@ const executeInitializationSteps = async (httpClient?: HttpClient): Promise<Hand
     platform: getPlatform(),
   }
   trackEvent('app_init_timing', initTimingPayload)
+
+  // Pre-Workspaces v1 migration telemetry. Fired here (not at the call sites
+  // above) so the events reach PostHog: the migrations run BEFORE step 8 initialises
+  // the client, and trackEvent / trackError silently drop while it's null — losing
+  // exactly the cohort we most want visibility into.
+  trackEvent('migration_storage_completed', {
+    migrated_token: storageMigration.migratedToken,
+    migrated_device_id: storageMigration.migratedDeviceId,
+  })
+  if (keyMigration) {
+    trackEvent('migration_keys_completed', {
+      migrated: keyMigration.migrated,
+      entry_count: keyMigration.entryCount,
+    })
+  } else if (keyMigrationError) {
+    trackError(
+      createHandleError('PRE_WORKSPACES_IDB_MIGRATION_FAILED', 'Failed to migrate encryption keys', keyMigrationError),
+      { migration_step: 'indexeddb' },
+    )
+  }
 
   return {
     success: true,

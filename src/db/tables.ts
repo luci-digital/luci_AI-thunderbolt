@@ -107,6 +107,7 @@ export const modelsTable = sqliteTable(
     defaultHash: text('default_hash'),
     vendor: text('vendor'),
     description: text('description'),
+    apiKey: text('api_key'),
     userId: text('user_id'),
     workspaceId: text('workspace_id'),
     scope: text('scope', { enum: ['workspace', 'user'] }).default('workspace'),
@@ -118,12 +119,6 @@ export const modelsTable = sqliteTable(
     index('idx_models_workspace_id').on(table.workspaceId),
   ],
 )
-
-/** Local-only table for model API keys. Never synced via PowerSync. */
-export const modelsSecretsTable = sqliteTable('models_secrets', {
-  modelId: text('id').primaryKey(),
-  apiKey: text('api_key'),
-})
 
 /** Local-only table for integration credentials (Google, Microsoft OAuth tokens). Never synced via PowerSync. */
 export const integrationsSecretsTable = sqliteTable('integrations_secrets', {
