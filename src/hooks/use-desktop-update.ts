@@ -10,12 +10,15 @@ import { isDesktop } from '@/lib/platform'
 import { getPowerSyncInstance } from '@/db/powersync/sync-state'
 import { setPostUpdateFlag, clearPostUpdateFlag } from '@/lib/post-update-redirect'
 
-export type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
+export type UpdateStatus = 'initial' | 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
+
+export type UpdateErrorPhase = 'check' | 'download' | 'restart'
 
 export type UpdateState = {
   status: UpdateStatus
   update: Update | null
   error: string | null
+  errorPhase: UpdateErrorPhase | null
   downloadProgress: number
 }
 
@@ -25,19 +28,20 @@ export type UpdateAction =
   | { type: 'DOWNLOAD_START' }
   | { type: 'DOWNLOAD_PROGRESS'; progress: number }
   | { type: 'DOWNLOAD_SUCCESS' }
-  | { type: 'ERROR'; error: string }
+  | { type: 'ERROR'; error: string; phase: UpdateErrorPhase }
 
 export const initialUpdateState: UpdateState = {
-  status: 'idle',
+  status: 'initial',
   update: null,
   error: null,
+  errorPhase: null,
   downloadProgress: 0,
 }
 
 export const updateReducer = (state: UpdateState, action: UpdateAction): UpdateState => {
   switch (action.type) {
     case 'CHECK_START':
-      return { ...state, status: 'checking', error: null }
+      return { ...state, status: 'checking', error: null, errorPhase: null }
     case 'CHECK_SUCCESS':
       return {
         ...state,
@@ -51,7 +55,7 @@ export const updateReducer = (state: UpdateState, action: UpdateAction): UpdateS
     case 'DOWNLOAD_SUCCESS':
       return { ...state, status: 'ready', downloadProgress: 100 }
     case 'ERROR':
-      return { ...state, status: 'error', error: action.error }
+      return { ...state, status: 'error', error: action.error, errorPhase: action.phase }
   }
 }
 
@@ -100,10 +104,17 @@ export const useDesktopUpdate = (): DesktopUpdateState => {
   const status = useUpdateStore((s) => s.status)
   const update = useUpdateStore((s) => s.update)
   const error = useUpdateStore((s) => s.error)
+  const errorPhase = useUpdateStore((s) => s.errorPhase)
   const downloadProgress = useUpdateStore((s) => s.downloadProgress)
 
   const checkForUpdates = useCallback(async () => {
     if (!isDesktop()) {
+      return
+    }
+
+    // Don't interrupt an in-flight check, download, or post-download ready state.
+    const current = useUpdateStore.getState().status
+    if (current === 'checking' || current === 'downloading' || current === 'ready') {
       return
     }
 
@@ -115,9 +126,11 @@ export const useDesktopUpdate = (): DesktopUpdateState => {
       dispatch({ type: 'CHECK_SUCCESS', update: availableUpdate })
     } catch (err) {
       console.error('Failed to check for updates:', err)
-      useUpdateStore
-        .getState()
-        .dispatch({ type: 'ERROR', error: extractErrorMessage(err, 'Failed to check for updates') })
+      useUpdateStore.getState().dispatch({
+        type: 'ERROR',
+        error: extractErrorMessage(err, 'Failed to check for updates'),
+        phase: 'check',
+      })
     }
   }, [])
 
@@ -152,9 +165,11 @@ export const useDesktopUpdate = (): DesktopUpdateState => {
       useUpdateStore.getState().dispatch({ type: 'DOWNLOAD_SUCCESS' })
     } catch (err) {
       console.error('Failed to download update:', err)
-      useUpdateStore
-        .getState()
-        .dispatch({ type: 'ERROR', error: extractErrorMessage(err, 'Failed to download update') })
+      useUpdateStore.getState().dispatch({
+        type: 'ERROR',
+        error: extractErrorMessage(err, 'Failed to download update'),
+        phase: 'download',
+      })
     }
   }, [])
 
@@ -173,19 +188,25 @@ export const useDesktopUpdate = (): DesktopUpdateState => {
       // Clear the flag so a stale flag doesn't force-redirect on next manual launch
       clearPostUpdateFlag()
       console.error('Failed to restart app:', err)
-      useUpdateStore.getState().dispatch({ type: 'ERROR', error: extractErrorMessage(err, 'Failed to restart app') })
+      useUpdateStore.getState().dispatch({
+        type: 'ERROR',
+        error: extractErrorMessage(err, 'Failed to restart app'),
+        phase: 'restart',
+      })
     }
   }, [])
 
   // Auto-check once per session on desktop. Guarded so mounting the hook in
-  // multiple places (toast + Settings) doesn't fire repeat checks.
+  // multiple places (toast + Settings) doesn't fire repeat checks. The guard
+  // is set inside the timeout so an early unmount re-arms the check on the
+  // next mount instead of silently swallowing it for the session.
   useEffect(() => {
     if (!isDesktop() || didAutoCheck) {
       return
     }
-    didAutoCheck = true
 
     const timeout = setTimeout(() => {
+      didAutoCheck = true
       checkForUpdates()
     }, 5000)
 
@@ -196,6 +217,7 @@ export const useDesktopUpdate = (): DesktopUpdateState => {
     status,
     update,
     error,
+    errorPhase,
     downloadProgress,
     checkForUpdates,
     downloadAndInstall,

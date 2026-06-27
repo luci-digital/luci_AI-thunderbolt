@@ -5,17 +5,32 @@
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { Button } from '@/components/ui/button'
 import { SectionCard } from '@/components/ui/section-card'
-import { useDesktopUpdate, type UpdateStatus } from '@/hooks/use-desktop-update'
+import { useDesktopUpdate, type UpdateErrorPhase, type UpdateStatus } from '@/hooks/use-desktop-update'
 import { downloadLinks } from '@/lib/download-links'
 import { getPlatform, isDesktop, isMobile, isTauri } from '@/lib/platform'
+
+const errorPrefix = (phase: UpdateErrorPhase | null): string => {
+  switch (phase) {
+    case 'download':
+      return "Couldn't download the update"
+    case 'restart':
+      return "Couldn't restart to apply the update"
+    case 'check':
+    case null:
+      return "Couldn't check for updates"
+  }
+}
 
 const desktopStatusText = (
   status: UpdateStatus,
   updateVersion: string | undefined,
   downloadProgress: number,
   error: string | null,
+  errorPhase: UpdateErrorPhase | null,
 ): string => {
   switch (status) {
+    case 'initial':
+      return 'Tap to check for updates.'
     case 'idle':
       return "You're on the latest version."
     case 'checking':
@@ -28,8 +43,10 @@ const desktopStatusText = (
       return `Downloading update... ${downloadProgress}%`
     case 'ready':
       return 'Update ready. Restart to apply.'
-    case 'error':
-      return error ? `Couldn't check for updates: ${error}` : "Couldn't check for updates."
+    case 'error': {
+      const prefix = errorPrefix(errorPhase)
+      return error ? `${prefix}: ${error}` : `${prefix}.`
+    }
   }
 }
 
@@ -39,7 +56,8 @@ export const AppVersionSection = () => {
   const mobile = isMobile()
   const showCheckButton = isTauri() && (desktop || mobile)
 
-  const { status, update, error, downloadProgress, checkForUpdates } = useDesktopUpdate()
+  const { status, update, error, errorPhase, downloadProgress, checkForUpdates } = useDesktopUpdate()
+  const checkDisabled = desktop && (status === 'checking' || status === 'downloading' || status === 'ready')
 
   const handleDesktopCheck = () => {
     checkForUpdates()
@@ -68,12 +86,12 @@ export const AppVersionSection = () => {
               <label className="text-sm font-medium">Updates</label>
               <p className="text-sm text-muted-foreground">
                 {desktop
-                  ? desktopStatusText(status, update?.version, downloadProgress, error)
+                  ? desktopStatusText(status, update?.version, downloadProgress, error, errorPhase)
                   : 'Open the store to check for updates.'}
               </p>
               <Button
                 variant="secondary"
-                disabled={desktop && status === 'checking'}
+                disabled={checkDisabled}
                 onClick={desktop ? handleDesktopCheck : handleMobileCheck}
               >
                 {desktop && status === 'checking' ? 'Checking...' : 'Check for updates'}
