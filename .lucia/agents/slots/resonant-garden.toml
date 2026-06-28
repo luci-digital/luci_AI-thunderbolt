@@ -1,0 +1,14 @@
+[project]
+name = "Resonant Garden"
+source = "google-drive://luci-Resonant_Garden"
+status = "integration_slot"
+frequency_hz = 528
+lds_tier = "700.528"
+
+[threading]
+thread_prefix = "resonant-garden"
+target_shard = 528
+
+[integration]
+target_module = "modules/consciousness/resonant-garden"
+content_hash = ""

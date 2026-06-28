@@ -1,0 +1,14 @@
+[project]
+name = "Containerization"
+source = "google-drive://containerization"
+status = "integration_slot"
+frequency_hz = 432
+lds_tier = "700.432"
+
+[threading]
+thread_prefix = "containerization"
+target_shard = 432
+
+[integration]
+target_module = "modules/infra/containerization"
+content_hash = ""

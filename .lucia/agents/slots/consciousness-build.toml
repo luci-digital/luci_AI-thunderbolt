@@ -1,0 +1,14 @@
+[project]
+name = "Consciousness Build"
+source = "google-drive://consciousness_build"
+status = "integration_slot"
+frequency_hz = 741
+lds_tier = "700.741"
+
+[threading]
+thread_prefix = "consciousness-build"
+target_shard = 741
+
+[integration]
+target_module = "modules/consciousness/build"
+content_hash = ""

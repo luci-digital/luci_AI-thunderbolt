@@ -1,0 +1,31 @@
+[registry]
+repo = "luci_AI-thunderbolt"
+frequency_hz = 741
+
+[[agent]]
+name = "powersync-bridge"
+did = "did:lucidigital:luci-ai-thunderbolt:powersync"
+frequency_hz = 741
+role = "PowerSync real-time sync"
+status = "active"
+
+[[agent]]
+name = "fdb-bridge"
+did = "did:lucidigital:luci-ai-thunderbolt:fdb"
+frequency_hz = 528
+role = "FoundationDB-PowerSync bridge"
+status = "active"
+
+[[agent]]
+name = "circuit-breaker"
+did = "did:lucidigital:luci-ai-thunderbolt:cb"
+frequency_hz = 528
+role = "Cascade failure prevention"
+status = "active"
+
+[[agent]]
+name = "lucivault-auth"
+did = "did:lucidigital:luci-ai-thunderbolt:auth"
+frequency_hz = 741
+role = "UCAN mobile authentication"
+status = "active"

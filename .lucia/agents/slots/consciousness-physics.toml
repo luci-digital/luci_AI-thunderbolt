@@ -1,0 +1,14 @@
+[project]
+name = "Consciousness Physics"
+source = "google-drive://consciousness_physics"
+status = "integration_slot"
+frequency_hz = 528
+lds_tier = "700.528"
+
+[threading]
+thread_prefix = "consciousness-physics"
+target_shard = 528
+
+[integration]
+target_module = "modules/consciousness/physics"
+content_hash = ""

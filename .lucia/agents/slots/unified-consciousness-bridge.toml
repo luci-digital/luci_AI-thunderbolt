@@ -1,0 +1,14 @@
+[project]
+name = "Unified Consciousness Bridge"
+source = "google-drive://UNIFIED_CONSCIOUSNESS_BRIDGE"
+status = "integration_slot"
+frequency_hz = 639
+lds_tier = "700.639"
+
+[threading]
+thread_prefix = "unified-bridge"
+target_shard = 639
+
+[integration]
+target_module = "modules/consciousness/bridge"
+content_hash = ""

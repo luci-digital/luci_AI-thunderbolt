@@ -1,0 +1,14 @@
+[project]
+name = "RISC-V Hardware Abstraction"
+source = "google-drive://riscv-docs-dev-guide-main"
+status = "integration_slot"
+frequency_hz = 432
+lds_tier = "700.432"
+
+[threading]
+thread_prefix = "riscv-hal"
+target_shard = 432
+
+[integration]
+target_module = "modules/hardware/riscv-hal"
+content_hash = ""

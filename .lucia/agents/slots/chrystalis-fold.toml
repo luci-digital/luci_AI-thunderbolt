@@ -1,0 +1,14 @@
+[project]
+name = "Chrystalis Fold"
+source = "google-drive://chrystalis_fold"
+status = "integration_slot"
+frequency_hz = 852
+lds_tier = "700.852"
+
+[threading]
+thread_prefix = "chrystalis-fold"
+target_shard = 852
+
+[integration]
+target_module = "modules/optimization/chrystalis"
+content_hash = ""
