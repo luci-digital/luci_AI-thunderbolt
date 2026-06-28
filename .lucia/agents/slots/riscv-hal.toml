@@ -1,9 +1,11 @@
 [project]
 name = "RISC-V Hardware Abstraction"
 source = "google-drive://riscv-docs-dev-guide-main"
+drive_id = "17Ta5ZM7WNsMjYamdX7-NZ0xvdUqgq2S3"
 status = "integration_slot"
 frequency_hz = 432
 lds_tier = "700.432"
+description = "RISC-V developer guide and documentation for hardware abstraction layer"
 
 [threading]
 thread_prefix = "riscv-hal"

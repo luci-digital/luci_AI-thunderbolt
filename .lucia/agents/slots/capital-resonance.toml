@@ -1,9 +1,12 @@
 [project]
 name = "Capital Resonance"
 source = "google-drive://claude-capital-resonance"
+drive_file_id = "1O3xlfDv0_-CpXbn4yl5tPmRv2YnaUKTb"
 status = "integration_slot"
 frequency_hz = 741
 lds_tier = "700.741"
+language = "python"
+description = "Capital vs resonance time calculator: T_capital=M/P, T_resonance=1/f, FFT expertise detection"
 
 [threading]
 thread_prefix = "capital-resonance"
@@ -12,3 +15,10 @@ target_shard = 741
 [integration]
 target_module = "modules/governance/capital"
 content_hash = ""
+components = [
+  "capital_resonance_calculator",
+  "core_types",
+  "frequency_analyzer",
+  "pattern_classifier",
+  "expertise_tax_calculator",
+]

@@ -1,14 +1,33 @@
 [project]
 name = "Resonant Garden"
 source = "google-drive://luci-Resonant_Garden"
+drive_id = "1xrDARYYkqo1smq0BKLjq5qtxXkoqCXed"
 status = "integration_slot"
-frequency_hz = 528
-lds_tier = "700.528"
+frequency_hz = 741
+lds_tier = "700.741"
+language = "swift"
+description = "PAC architecture: FreeBSD host, Bastille jails, Nomad workloads, diaper-fabric memory"
 
 [threading]
 thread_prefix = "resonant-garden"
-target_shard = 528
+target_shard = 741
 
 [integration]
 target_module = "modules/consciousness/resonant-garden"
 content_hash = ""
+components = [
+  "Source",
+  "LiquidGlassApp",
+  "ComfyStream",
+  "mcp-servers",
+  "operators/ipv6-resonance-operator",
+  "interagents",
+  "infrastructure",
+  "pac",
+  "temporal/workflows",
+  "podman/control-plane",
+  "Integration/SBB",
+  "Integration/CBB",
+  "knowledge",
+  "luci-caas-orb",
+]

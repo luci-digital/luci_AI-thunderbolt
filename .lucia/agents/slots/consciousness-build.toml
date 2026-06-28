@@ -1,9 +1,11 @@
 [project]
 name = "Consciousness Build"
 source = "google-drive://consciousness_build"
+drive_file_id = "1s8iVnPOPy0JRgK_u4vkdth7-cAye_55O"
 status = "integration_slot"
 frequency_hz = 741
 lds_tier = "700.741"
+description = "Consciousness mathematics framework, SeaBee eBPF security, CADRays geometry, E8 lattice pathfinding"
 
 [threading]
 thread_prefix = "consciousness-build"
@@ -12,3 +14,8 @@ target_shard = 741
 [integration]
 target_module = "modules/consciousness/build"
 content_hash = ""
+components = [
+  "conciousness-mathematics",
+  "seabee-main",
+  "CADRays-master",
+]
