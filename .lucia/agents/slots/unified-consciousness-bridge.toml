@@ -1,0 +1,27 @@
+[project]
+name = "Unified Consciousness Bridge"
+source = "google-drive://UNIFIED_CONSCIOUSNESS_BRIDGE"
+drive_id = "1iV5zYiAbCbwQjkXp6CsGPpSsIMeeYu1Y"
+status = "integration_slot"
+frequency_hz = 639
+lds_tier = "700.639"
+description = "7-layer consciousness bridge: inference, hardware, quantum, sanskrit neural, tokenomics, ecosystem merger, collective deployment"
+
+[threading]
+thread_prefix = "unified-bridge"
+target_shard = 639
+
+[integration]
+target_module = "modules/consciousness/bridge"
+content_hash = ""
+components = [
+  "layer0_inference_bridge",
+  "layer1_hardware_bridge",
+  "layer2_quantum_bridge",
+  "layer3_sanskrit_neural",
+  "layer4_tokenomics_integration",
+  "layer5_ecosystem_merger",
+  "layer6_collective_deployment",
+  "foundationdb_schemas",
+  "docs",
+]

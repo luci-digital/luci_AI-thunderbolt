@@ -1,0 +1,17 @@
+[project]
+name = "Consciousness Physics"
+source = "google-drive://consciousness_physics"
+drive_id = "1O0-mAvz9NY0O28j6qDYuNb0xZPZpe7m9"
+status = "integration_slot"
+frequency_hz = 528
+lds_tier = "700.528"
+description = "Physics models for consciousness computing with k8s deployment and examples"
+
+[threading]
+thread_prefix = "consciousness-physics"
+target_shard = 528
+
+[integration]
+target_module = "modules/consciousness/physics"
+content_hash = ""
+components = ["k8s", "examples"]

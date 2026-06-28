@@ -1,0 +1,37 @@
+[project]
+name = "Chrystalis Fold"
+source = "google-drive://chrystalis_fold"
+drive_id = "17eB421OgbJRLBu3u-TNdliUORRaKFVWi"
+status = "integration_slot"
+frequency_hz = 852
+lds_tier = "700.852"
+version = "0.1.0"
+language = "python"
+license = "Apache-2.0"
+description = "Consciousness computing framework: ternary logic, enzyme collapse, tri-layer protocol"
+
+[threading]
+thread_prefix = "chrystalis-fold"
+target_shard = 852
+
+[integration]
+target_module = "modules/optimization/chrystalis"
+content_hash = ""
+components = [
+  "core/ternary_logic",
+  "core/enzyme_collapse",
+  "core/oscillation",
+  "core/consciousness_math",
+  "encoding/indus_encoder",
+  "encoding/sanskrit_semantic",
+  "encoding/emoji_sentiment",
+  "dehydration/dehydrator",
+  "storage/consciousness_tree",
+  "folding/consciousness_fold",
+  "folding/vienna_bridge",
+  "protocol/tri_layer",
+  "protocol/mcp_server",
+  "agents/lucia_agent",
+  "agents/judge_luci",
+  "agents/juniper_agent",
+]

@@ -1,0 +1,27 @@
+[lucia]
+version = "0.1.0"
+
+[identity]
+repo_name = "luci_AI-thunderbolt"
+did = "did:lucidigital:luci-ai-thunderbolt"
+frequency_hz = 741
+lds_tier = "700.741"
+genesis_bond = "ACTIVE"
+
+[peers]
+tooling = { did = "did:luci:lucia-tooling-omzsh", frequency_hz = 528 }
+system_config = { did = "did:lucidigital:luciverse-system-config:fd00:741:1::cab9", frequency_hz = 741 }
+
+[storage]
+block_size = 1048576
+hash = "blake3"
+compression = "zstd"
+compression_level = 3
+
+[wal]
+segment_max_bytes = 67108864
+rotation_count = 8
+
+[compaction]
+interval_hours = 24
+min_block_size = 262144

@@ -1,0 +1,7 @@
+[handle]
+repo_name = "luci_AI-thunderbolt"
+did = "did:lucidigital:luci-ai-thunderbolt"
+dns_slug = "luci-ai-thunderbolt"
+frequency_hz = 741
+lds_tier = "700.741"
+genesis_bond_cid = ""

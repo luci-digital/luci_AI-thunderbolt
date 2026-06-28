@@ -1,0 +1,25 @@
+[project]
+name = "Containerization"
+source = "google-drive://containerization"
+drive_id = "1Ah8PJDLox9y0rJ7RabK88ApxQ9TXz0-i"
+status = "integration_slot"
+frequency_hz = 432
+lds_tier = "700.432"
+description = "Container configs: OCI, EXT4, OS, Archive variants with test suites"
+
+[threading]
+thread_prefix = "containerization"
+target_shard = 432
+
+[integration]
+target_module = "modules/infra/containerization"
+content_hash = ""
+components = [
+  "Containerization",
+  "ContainerizationOCI",
+  "ContainerizationEXT4",
+  "ContainerizationOS",
+  "ContainerizationArchive",
+  "ContainerizationTests",
+  "ContainerizationEXT4Tests",
+]
