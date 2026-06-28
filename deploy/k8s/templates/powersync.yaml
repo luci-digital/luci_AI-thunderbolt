@@ -28,6 +28,19 @@ spec:
       {{- include "thunderbolt.podAnnotations" (dict "component" .Values.powersync "root" .) | nindent 6 }}
     spec:
       {{- include "thunderbolt.imagePullSecrets" . | nindent 6 }}
+      affinity:
+        # Prefer spreading powersync pods across different nodes for higher availability
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - powersync
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: powersync
           image: "{{ .Values.powersync.image.repository }}:{{ .Values.powersync.image.tag }}"

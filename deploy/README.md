@@ -14,6 +14,7 @@ Self-hosted Thunderbolt with OIDC or SAML authentication via Keycloak. Three dep
 - [3. AWS with Pulumi](#3-aws-with-pulumi)
 - [4. GitHub Actions CI/CD](#4-github-actions-cicd)
 - [Configuration Reference](#configuration-reference)
+- [Secret Management & Security Hardening](#secret-management--security-hardening)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -658,3 +659,192 @@ kubectl get events -n thunderbolt --sort-by='.lastTimestamp' | tail -20
 **Fargate service won't start**: Check CloudWatch logs in the AWS console. The log group is named after the stack (e.g., `tb-dev-logs`). Common issues: image pull failures (check GHCR token), EFS mount failures, security group rules.
 
 **AWS credentials expired**: Re-authenticate with `aws configure sso` or refresh your session.
+
+---
+
+## Secret Management & Security Hardening
+
+### Overview
+
+Thunderbolt implements enterprise-grade secret management to protect sensitive credentials:
+
+- **No hardcoded secrets in Helm values** — all sensitive data sourced from external secret stores
+- **Kubernetes encryption-at-rest** — etcd database encrypted transparently
+- **Secret audit logging** — detect and alert on unauthorized secret access
+- **Idempotent secret generation** — safe, repeatable secret provisioning
+
+### Secret Generation
+
+Generate and inject secrets into the Kubernetes cluster:
+
+```bash
+cd deploy/scripts
+chmod +x generate-secrets.sh
+
+# Generate secrets in 'thunderbolt' namespace (idempotent)
+./generate-secrets.sh -n thunderbolt
+
+# Preview without creating
+./generate-secrets.sh -n thunderbolt --dry-run
+
+# Force regenerate (⚠️  this will break running pods)
+./generate-secrets.sh -n thunderbolt --force
+```
+
+**What gets generated:**
+
+| Secret                      | Used By          | Purpose                                    |
+| --------------------------- | ---------------- | ------------------------------------------ |
+| `better-auth-secret`        | Backend          | Better Auth session signing                |
+| `keycloak-admin-password`   | Keycloak         | Admin console credentials                  |
+| `oidc-client-secret`        | Backend + Keycloak | OIDC client authentication                 |
+| `postgres-password`         | Backend + PowerSync | Database access                            |
+| `powersync-jwt-secret`      | Backend + PowerSync | JWT token signing (base64url-encoded)      |
+| `powersync-jwt-secret-b64`  | PowerSync        | JWK `k` field (base64url string)           |
+| `powersync-db-password`     | PowerSync        | Replication role password                  |
+
+All secrets are random, cryptographically secure, and rotated independently.
+
+### External Secrets Integration
+
+Thunderbolt supports external secret stores for production deployments:
+
+```yaml
+# values.yaml
+externalSecrets:
+  enabled: true
+  provider: onepassword  # or: vault
+  onepassword:
+    connectHost: http://onepassword-connect:8080
+    # Secrets must exist at these paths in 1Password:
+    # - aifam/secrets/better-auth-secret
+    # - aifam/secrets/keycloak-admin-password
+    # - aifam/secrets/oidc-client-secret
+    # - etc.
+  vault:
+    server: http://vault:8200
+    path: secret/data/aifam
+    authMountPath: kubernetes
+    role: aifam-secrets-reader
+```
+
+For 1Password setup, install the Connect server:
+
+```bash
+# Install 1Password Connect Server (outside cluster, or as StatefulSet)
+docker run -p 8080:8080 1password/connect-api:latest
+```
+
+For Vault setup, configure Kubernetes authentication and AppRole:
+
+```bash
+# Enable Kubernetes auth in Vault
+vault auth enable kubernetes
+vault write auth/kubernetes/config \
+  kubernetes_host="https://KUBERNETES_HOST:6443" \
+  kubernetes_ca_cert=@/etc/kubernetes/ca.crt \
+  token_reviewer_jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token
+
+# Create Vault policy
+vault policy write aifam-secrets-reader - <<EOF
+path "secret/data/aifam/*" {
+  capabilities = ["read", "list"]
+}
+EOF
+
+# Bind to Kubernetes ServiceAccount
+vault write auth/kubernetes/role/aifam-secrets-reader \
+  bound_service_account_names=default \
+  bound_service_account_namespaces=thunderbolt \
+  policies=aifam-secrets-reader
+```
+
+Then install the external-secrets operator:
+
+```bash
+helm repo add external-secrets https://charts.external-secrets.io
+helm install external-secrets external-secrets/external-secrets \
+  -n external-secrets-system --create-namespace
+```
+
+Deploy with external secrets enabled:
+
+```bash
+helm install thunderbolt . -n thunderbolt --create-namespace \
+  -f values.yaml \
+  --set externalSecrets.enabled=true
+```
+
+### Kubernetes Encryption-at-Rest
+
+Enable transparent encryption of the etcd database:
+
+```bash
+# 1. Generate a 32-byte AES encryption key
+ENCRYPTION_KEY=$(head -c 32 /dev/urandom | base64)
+
+# 2. Update the encryption configuration (deploy/k8s/encryption-provider.yaml)
+sed -i "s/<BASE64_ENCODED_KEY>/$ENCRYPTION_KEY/" deploy/k8s/encryption-provider.yaml
+
+# 3. Copy to the control plane node (if self-hosted)
+scp deploy/k8s/encryption-provider.yaml user@master:/etc/kubernetes/encryption/
+
+# 4. Update kube-apiserver manifest (/etc/kubernetes/manifests/kube-apiserver.yaml)
+# Add flags:
+#   - --encryption-provider-config=/etc/kubernetes/encryption/encryption-provider.yaml
+# Add volume mount:
+#   - name: encryption-config
+#     mountPath: /etc/kubernetes/encryption
+#     readOnly: true
+# Add volume:
+#   - name: encryption-config
+#     hostPath:
+#       path: /etc/kubernetes/encryption
+#       type: DirectoryOrCreate
+
+# 5. Restart the control plane
+# kubeadm will restart the apiserver automatically after detecting manifest changes
+kubectl -n kube-system rollout status deployment/kube-apiserver
+
+# 6. Verify encryption is active
+# Encrypted secrets should show binary data:
+etcdctl get /registry/secrets/<namespace>/<secret-name> | od -c
+```
+
+For managed Kubernetes (EKS, GKE, AKS), check your provider's documentation on encryption options.
+
+### Secret Audit Logging
+
+Enable audit logging for secret access via Falco:
+
+```bash
+helm install thunderbolt . -n thunderbolt --create-namespace \
+  --set falcoSecretsAudit.enabled=true \
+  --set falcoSecretsAudit.webhookToken=your-webhook-token
+```
+
+This deploys Falco rules that detect:
+- `kubectl get/describe/edit secret` commands
+- Secret access from containers
+- Suspicious secret decodings or exports
+- Secrets mounted in privileged contexts
+
+Alerts can be sent to:
+- Stdout (local debugging)
+- Syslog (centralized logging)
+- Webhook (integration with SIEM/Slack)
+- File (persistent audit trail)
+
+See `deploy/k8s/templates/falco-secrets-audit.yaml` for configuration.
+
+### Best Practices
+
+1. **Never commit secrets to git** — use external stores or generate at deploy time
+2. **Rotate secrets regularly** — run `generate-secrets.sh --force` and restart pods
+3. **Use principle of least privilege** — limit secret access via RBAC
+4. **Enable audit logging** — detect suspicious access patterns early
+5. **Encrypt in transit and at rest** — TLS for transport, aescbc for etcd
+6. **Separate key material** — store encryption keys separate from etcd backups
+7. **Backup encrypted secrets** — keep etcd snapshots and encryption keys in secure vault
+
+---

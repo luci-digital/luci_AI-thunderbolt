@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { createMainRoutes } from '@/api/routes'
+import { createHealthRoutes } from '@/api/health'
 import { createBetterAuthPlugin } from '@/auth/elysia-plugin'
 import { createGoogleAuthRoutes } from '@/auth/google'
 import { createMicrosoftAuthRoutes } from '@/auth/microsoft'
@@ -157,6 +158,7 @@ export const createApp = async (deps?: AppDeps) => {
       .use(createAccountRoutes(auth, database))
       .use(createAgentsRoutes(auth))
       .use(createHaystackRoutes(settings, auth, { fetchFn }))
+      .use(createHealthRoutes)
   )
 }
 

@@ -1,0 +1,149 @@
+################################################################################
+# Kubernetes Encryption-at-Rest Configuration
+#
+# Purpose: Enable encryption of Kubernetes etcd database at rest using AES-CBC.
+#
+# This EncryptionConfiguration must be provided to the kube-apiserver via the
+# --encryption-provider-config flag. When enabled, all data stored in etcd
+# (secrets, ConfigMaps, RBAC resources, etc.) is encrypted transparently.
+#
+# Security Benefits:
+# - Secrets encrypted in storage, not just in transit
+# - Complies with security standards (HIPAA, PCI-DSS, GDPR)
+# - Protects against direct etcd database access
+# - Supports key rotation without data loss
+#
+# Deployment Steps:
+#
+# 1. Generate an encryption key (32-byte AES key):
+#    head -c 32 /dev/urandom | base64
+#
+# 2. Create the EncryptionConfiguration file (this file).
+#    Replace <BASE64_ENCODED_KEY> with the key from step 1.
+#
+# 3. Mount this file in the kube-apiserver container:
+#    - Copy to /etc/kubernetes/encryption/ on the master node
+#    - Ensure permissions: 600 (read-only by apiserver)
+#
+# 4. Update kube-apiserver manifest:
+#    - Add: --encryption-provider-config=/etc/kubernetes/encryption/encryption-provider.yaml
+#    - Mount the file: -v /etc/kubernetes/encryption/:/etc/kubernetes/encryption/:ro
+#
+# 5. Restart the kube-apiserver:
+#    # For kubeadm clusters:
+#    sudo systemctl restart kubelet
+#    # Watch for API readiness:
+#    kubectl get nodes
+#
+# 6. (Optional) Encrypt existing data:
+#    kubectl get secrets --all-namespaces -o json | \
+#      kubectl replace -f -
+#
+# ===
+# KEY ROTATION (zero-downtime):
+#
+# When rotating encryption keys:
+#
+# 1. Create new EncryptionConfiguration with both keys (new first):
+#    aescbc:
+#      - name: <NEW_KEY_NAME>
+#        secret: <NEW_BASE64_KEY>
+#      - name: <OLD_KEY_NAME>
+#        secret: <OLD_BASE64_KEY>
+#
+# 2. Mount the updated config and restart apiserver (triggers re-encryption)
+#
+# 3. Monitor re-encryption progress via Kubernetes metrics
+#    (watch for increased etcd write volume)
+#
+# 4. Once re-encryption completes, remove old key from config
+#
+# ===
+# MIGRATION TO ENCRYPTED CLUSTER:
+#
+# If you have an existing unencrypted Kubernetes cluster and want to enable
+# encryption:
+#
+# 1. Create the EncryptionConfiguration with the new key
+#
+# 2. Update kube-apiserver and restart (this enables encryption on write)
+#
+# 3. Re-encrypt all existing data:
+#    # This forces all secrets through encryption write path
+#    kubectl get secrets --all-namespaces -o json | \
+#      kubectl replace -f - --namespace={namespace}
+#    # Repeat for all namespaces
+#
+# 4. Verify encryption is active:
+#    etcdctl get /registry/secrets/<namespace>/<secret-name> | od -c
+#    (should show binary data, not plaintext)
+#
+# ===
+# BACKUP AND DISASTER RECOVERY:
+#
+# IMPORTANT: Keep encrypted and plaintext backups of:
+# - The encryption key (store in secure vault, separate from etcd backup)
+# - The etcd snapshot (encrypted with the key in use at backup time)
+#
+# In case of disaster:
+# - To restore encrypted cluster: restore etcd snapshot + keep encryption key active
+# - To extract data: etcdctl must be run on node with encryption key loaded
+#
+# ===
+# LIMITATIONS:
+#
+# - Encryption is transparent to applications (no code changes needed)
+# - Performance overhead is typically <2% CPU
+# - Key material must be kept secure (treat like root password)
+# - Encryption applies only to etcd storage; transport encryption (TLS) is separate
+#
+################################################################################
+
+apiVersion: apiserver.config.k8s.io/v1
+kind: EncryptionConfiguration
+resources:
+  # Encrypt all Secrets (the most sensitive resource type)
+  - resources:
+      - secrets
+    providers:
+      # aescbc: AES in CBC mode with PKCS#7 padding
+      # First provider listed is used for encryption; others are tried for decryption
+      # This allows key rotation: add new key first, restart apiserver to re-encrypt
+      - aescbc:
+          keys:
+            # Replace <BASE64_ENCODED_KEY> with output from:
+            #   head -c 32 /dev/urandom | base64
+            - name: aifam-encryption-key-1
+              secret: <BASE64_ENCODED_KEY>
+      # identity: Read-only fallback for unencrypted data (allows migration)
+      # This provider does NOT encrypt new writes; it only reads old data.
+      # Keep this as a fallback during encryption migration.
+      - identity: {}
+
+  # Optional: Encrypt other sensitive resources
+  # Uncomment to also encrypt ConfigMaps, ServiceAccounts, etc.
+  #
+  # - resources:
+  #     - configmaps
+  #   providers:
+  #     - aescbc:
+  #         keys:
+  #           - name: aifam-encryption-key-1
+  #             secret: <BASE64_ENCODED_KEY>
+  #     - identity: {}
+  #
+  # - resources:
+  #     - pods
+  #   providers:
+  #     - aescbc:
+  #         keys:
+  #           - name: aifam-encryption-key-1
+  #             secret: <BASE64_ENCODED_KEY>
+  #     - identity: {}
+
+  # Default: all other resources (ConfigMaps, pods, etc.) remain unencrypted
+  # Add specific resources above if encryption is needed
+  - resources:
+      - '*'
+    providers:
+      - identity: {}

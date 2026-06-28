@@ -20,14 +20,30 @@ frontend:
     repository: ghcr.io/thunderbird/thunderbolt/thunderbolt-frontend
     tag: latest
     pullPolicy: IfNotPresent
-  replicas: 1
+  replicas: 2
   service:
     port: 80
   # -- Pod annotations applied to frontend pods. Merged with top-level
   # `podAnnotations`; these win on key conflict.
   podAnnotations: {}
-  # -- Pod resource requests/limits for the frontend container.
-  resources: {}
+  # -- Pod resource requests/limits for the frontend container (nginx).
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  # -- Horizontal Pod Autoscaler configuration. Scales frontend based on CPU utilization.
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 75
+  # -- Pod disruption budget. Ensures at least 1 frontend pod is always available during disruptions.
+  poddisruptionbudget:
+    enabled: true
+    minAvailable: 1
 
 # =============================================================================
 # Marketing (Astro static site: landing page, blog, docs)
@@ -54,12 +70,11 @@ backend:
     repository: ghcr.io/thunderbird/thunderbolt/thunderbolt-backend
     tag: latest
     pullPolicy: IfNotPresent
-  replicas: 1
+  replicas: 2
   service:
     port: 8000
-  # -- Base64-encoded Better Auth secret (REQUIRED — no safe default)
-  # Generate with: echo -n "your-secret" | base64
-  betterAuthSecretBase64: ""
+  # -- Better Auth secret is now sourced from external secrets (aifam-secrets).
+  # See templates/external-secrets.yaml for configuration details.
   env:
     authMode: oidc
     waitlistEnabled: "false"
@@ -67,20 +82,33 @@ backend:
     rateLimitEnabled: "false"
     # -- Thunderbolt inference gateway URL (plaintext; empty disables the provider)
     thunderboltInferenceUrl: ""
-  # -- Base64-encoded AI provider keys. Empty defaults disable each provider
-  # (backend zod schema treats empty string as "not configured").
-  # Generate each with: echo -n "<your-key>" | base64
-  aiSecrets:
-    anthropicApiKeyBase64: ""
-    fireworksApiKeyBase64: ""
-    mistralApiKeyBase64: ""
-    thunderboltInferenceApiKeyBase64: ""
-    exaApiKeyBase64: ""
+  # -- AI provider keys are now sourced from external secrets (aifam-secrets).
+  # Empty defaults disable each provider (backend zod schema treats empty string as "not configured").
+  # See templates/external-secrets.yaml for configuration details.
+  aiSecrets: {}
   # -- Pod annotations applied to backend pods. Merged with top-level
   # `podAnnotations`; these win on key conflict.
   podAnnotations: {}
-  # -- Pod resource requests/limits for the backend container.
-  resources: {}
+  # -- Pod resource requests/limits for the backend container (Bun runtime).
+  # Tuned for typical AIFAM workloads: API gateway, LLM routing, vector DB access.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  # -- Horizontal Pod Autoscaler configuration. Scales backend based on CPU and memory utilization.
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  # -- Pod disruption budget. Ensures at least 1 backend pod is always available during disruptions.
+  poddisruptionbudget:
+    enabled: true
+    minAvailable: 1
 
 # =============================================================================
 # PostgreSQL
@@ -93,8 +121,8 @@ postgres:
   credentials:
     user: postgres
     database: postgres
-    # -- Base64-encoded password (default: "postgres")
-    passwordBase64: cG9zdGdyZXM=
+    # -- Password is now sourced from external secrets (aifam-secrets, key: postgres-password).
+    # See templates/external-secrets.yaml for configuration details.
   # -- TLS mode for Postgres connections. Wired into both the backend's
   # `DATABASE_URL` (as `?sslmode=...`) and PowerSync's `replication`/`storage`
   # config. Default `disable` matches the in-cluster StatefulSet which ships
@@ -104,8 +132,18 @@ postgres:
   # -- Pod annotations applied to postgres pods. Merged with top-level
   # `podAnnotations`; these win on key conflict.
   podAnnotations: {}
-  # -- Pod resource requests/limits for the postgres container.
-  resources: {}
+  # -- Pod resource requests/limits for the postgres container (StatefulSet).
+  # Postgres is stateful and does NOT autoscale. Higher memory for shared buffers.
+  # Set shared_buffers to 25% of memory limit (e.g., 256MB for 1Gi limit).
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  # -- Postgres does NOT autoscale (stateful). Manual scaling only via StatefulSet replicas.
+  # No PDB configured (single-pod stateful service; PDB would prevent maintenance).
 
 # =============================================================================
 # PowerSync
@@ -114,30 +152,38 @@ powersync:
   image:
     repository: journeyapps/powersync-service
     tag: latest
-  replicas: 1
+  replicas: 2
   service:
     port: 8080
   jwt:
     kid: enterprise-powersync
-    # -- JWT signing secret, encoded with **base64url** (RFC 7518). The string
-    # is consumed both as the HS256 signing secret and as the JWK `k` field
-    # PowerSync uses to verify tokens, and JWK requires base64url specifically.
-    # Decoded length must be >= 32 chars (backend validation).
-    # Default: "enterprise-thunderbolt-powersync-jwt-default-secret" (51 chars).
-    #
-    # WARNING: do NOT use `openssl rand -base64`; its output can include `+/=`
-    # which the JWK parser rejects. Use one of:
-    #   openssl rand 32 | basenc --base64url --wrap=0
-    #   openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
-    secretBase64: ZW50ZXJwcmlzZS10aHVuZGVyYm9sdC1wb3dlcnN5bmMtand0LWRlZmF1bHQtc2VjcmV0
+    # -- JWT signing secret is now sourced from external secrets (aifam-secrets, key: powersync-jwt-secret).
+    # Must be base64url-encoded (RFC 7518) with decoded length >= 32 chars.
+    # See templates/external-secrets.yaml for configuration details.
   db:
-    # -- Base64-encoded powersync_role database password (default: "myhighlyrandompassword")
-    passwordBase64: bXloaWdobHlyYW5kb21wYXNzd29yZA==
+    # -- PowerSync database password is now sourced from external secrets (aifam-secrets, key: powersync-db-password).
+    # See templates/external-secrets.yaml for configuration details.
   # -- Pod annotations applied to powersync pods. Merged with top-level
   # `podAnnotations`; these win on key conflict.
   podAnnotations: {}
-  # -- Pod resource requests/limits for the powersync container.
-  resources: {}
+  # -- Pod resource requests/limits for the powersync container (sync service).
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  # -- Horizontal Pod Autoscaler configuration. Scales PowerSync based on CPU utilization.
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+  # -- Pod disruption budget. Ensures at least 1 PowerSync pod is always available during disruptions.
+  poddisruptionbudget:
+    enabled: true
+    minAvailable: 1
 
 # =============================================================================
 # Keycloak (OIDC Identity Provider)
@@ -151,11 +197,12 @@ keycloak:
     port: 8080
   admin:
     username: admin
-    password: admin
+    # -- Admin password is now sourced from external secrets (aifam-secrets, key: keycloak-admin-password).
+    # See templates/external-secrets.yaml for configuration details.
   oidc:
     clientId: thunderbolt-app
-    # -- Base64-encoded client secret (default: "thunderbolt-enterprise-secret")
-    clientSecretBase64: dGh1bmRlcmJvbHQtZW50ZXJwcmlzZS1zZWNyZXQ=
+    # -- OIDC client secret is now sourced from external secrets (aifam-secrets, key: oidc-client-secret).
+    # See templates/external-secrets.yaml for configuration details.
   # -- Include a `demo@thunderbolt.io` / `demo` user in the imported realm.
   # Convenient for local/preview environments and docs walk-throughs; set to
   # `false` for production deployments. Default `true` preserves current behavior.
@@ -169,8 +216,17 @@ keycloak:
   # -- Pod annotations applied to keycloak pods. Merged with top-level
   # `podAnnotations`; these win on key conflict.
   podAnnotations: {}
-  # -- Pod resource requests/limits for the keycloak container.
-  resources: {}
+  # -- Pod resource requests/limits for the keycloak container (Java, requires heap).
+  # Set JVM heap to ~80% of memory limit. For 1Gi limit: -Xmx768m
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+  # -- Keycloak is a single-pod auth instance (NOT autoscaled). Manual scaling only.
+  # No PDB configured (single-pod SPOF, PDB would prevent all maintenance).
 
 # =============================================================================
 # Ingress

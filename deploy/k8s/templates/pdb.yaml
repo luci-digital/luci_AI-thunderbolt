@@ -1,0 +1,56 @@
+{{- /*
+Pod Disruption Budgets (PDB) ensure high availability during voluntary disruptions
+(node drains, cluster upgrades, maintenance). Each PDB is configured with a
+`minAvailable` value that guarantees at least N pods remain running.
+
+Stateless services (backend, frontend, powersync) have PDBs enabled by default.
+Stateful services (postgres, keycloak) do NOT have PDBs:
+- Postgres: Single-pod StatefulSet; PDB would block all maintenance.
+- Keycloak: Single OIDC provider; PDB would prevent emergency maintenance.
+
+PDBs can be disabled per-component by setting `enabled: false` in values.yaml.
+*/ -}}
+
+{{- if .Values.backend.poddisruptionbudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-pdb
+  labels:
+    {{- include "thunderbolt.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.backend.poddisruptionbudget.minAvailable }}
+  selector:
+    matchLabels:
+      app: backend
+---
+{{- end }}
+
+{{- if .Values.frontend.poddisruptionbudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  labels:
+    {{- include "thunderbolt.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.frontend.poddisruptionbudget.minAvailable }}
+  selector:
+    matchLabels:
+      app: frontend
+---
+{{- end }}
+
+{{- if .Values.powersync.poddisruptionbudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: powersync-pdb
+  labels:
+    {{- include "thunderbolt.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.powersync.poddisruptionbudget.minAvailable }}
+  selector:
+    matchLabels:
+      app: powersync
+{{- end }}
