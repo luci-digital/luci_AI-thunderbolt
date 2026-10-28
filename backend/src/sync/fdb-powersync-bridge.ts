@@ -198,20 +198,14 @@ export class FdbToPowerSyncBridge {
 
       // Retry with exponential backoff
       if (retryCount < this.config.maxRetries) {
-        const backoffMs = Math.min(
-          this.config.initialBackoffMs * Math.pow(2, retryCount),
-          this.config.maxBackoffMs,
-        )
+        const backoffMs = Math.min(this.config.initialBackoffMs * Math.pow(2, retryCount), this.config.maxBackoffMs)
 
         await new Promise((resolve) => setTimeout(resolve, backoffMs))
         return this.flushBatch(tableName, retryCount + 1)
       }
 
       // Max retries exceeded; log and move on
-      console.error(
-        `[FdbPowerSyncBridge] Failed to sync ${tableName} after ${this.config.maxRetries} retries:`,
-        error,
-      )
+      console.error(`[FdbPowerSyncBridge] Failed to sync ${tableName} after ${this.config.maxRetries} retries:`, error)
     }
   }
 

@@ -44,10 +44,7 @@ export class CircuitBreaker {
   private successThreshold: number
   private name: string
 
-  constructor(
-    name: string,
-    options: CircuitBreakerOptions = {},
-  ) {
+  constructor(name: string, options: CircuitBreakerOptions = {}) {
     this.name = name
     this.failureThreshold = options.failureThreshold ?? 5
     this.resetTimeout = options.resetTimeout ?? 60_000 // 60 seconds
@@ -193,10 +190,7 @@ export class CircuitBreaker {
  */
 const breakers = new Map<string, CircuitBreaker>()
 
-export const getOrCreateCircuitBreaker = (
-  name: string,
-  options?: CircuitBreakerOptions,
-): CircuitBreaker => {
+export const getOrCreateCircuitBreaker = (name: string, options?: CircuitBreakerOptions): CircuitBreaker => {
   if (!breakers.has(name)) {
     breakers.set(name, new CircuitBreaker(name, options))
   }

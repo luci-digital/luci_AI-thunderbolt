@@ -81,13 +81,7 @@ describe('FdbToPowerSyncBridge', () => {
     })
 
     it('should support UPDATE operation', async () => {
-      await bridge.syncTable(
-        'chat_messages',
-        'msg-1',
-        'user-1',
-        { content: 'Updated message' },
-        'UPDATE',
-      )
+      await bridge.syncTable('chat_messages', 'msg-1', 'user-1', { content: 'Updated message' }, 'UPDATE')
       await bridge.flushAll()
 
       const health = bridge.getHealth()

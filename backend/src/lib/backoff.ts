@@ -52,10 +52,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  * );
  * ```
  */
-export const retryWithBackoff = async <T>(
-  fn: () => Promise<T>,
-  options: BackoffOptions = {},
-): Promise<T> => {
+export const retryWithBackoff = async <T>(fn: () => Promise<T>, options: BackoffOptions = {}): Promise<T> => {
   const maxRetries = options.maxRetries ?? 5
   const initialDelayMs = options.initialDelayMs ?? 100
   const maxDelayMs = options.maxDelayMs ?? 60_000
@@ -110,10 +107,7 @@ export const retryWithBackoff = async <T>(
  * Similar to retryWithBackoff but for sync operations that internally use promises.
  * Note: this is async because it uses setTimeout for delays.
  */
-export const retryWithBackoffSync = async <T>(
-  fn: () => T,
-  options: BackoffOptions = {},
-): Promise<T> => {
+export const retryWithBackoffSync = async <T>(fn: () => T, options: BackoffOptions = {}): Promise<T> => {
   const maxRetries = options.maxRetries ?? 5
   const initialDelayMs = options.initialDelayMs ?? 100
   const maxDelayMs = options.maxDelayMs ?? 60_000

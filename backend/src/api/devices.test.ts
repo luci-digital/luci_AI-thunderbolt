@@ -74,12 +74,7 @@ describe('Device API', () => {
     return now
   }
 
-  const registerRequest = (
-    token: string,
-    deviceId: string,
-    platform: string,
-    deviceName?: string,
-  ) => {
+  const registerRequest = (token: string, deviceId: string, platform: string, deviceName?: string) => {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${signToken(token)}`,
       'Content-Type': 'application/json',

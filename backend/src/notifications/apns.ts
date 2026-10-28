@@ -138,11 +138,7 @@ export class APNsClient {
    * Internal retry logic with exponential backoff.
    * Retries up to maxRetries times with exponential backoff.
    */
-  private async sendWithRetry(
-    deviceToken: string,
-    payload: string,
-    attempt: number,
-  ): Promise<NotificationResponse> {
+  private async sendWithRetry(deviceToken: string, payload: string, attempt: number): Promise<NotificationResponse> {
     try {
       // TODO: Implement actual APNs HTTP/2 POST request here
       // For now, simulate success

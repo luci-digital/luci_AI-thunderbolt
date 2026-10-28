@@ -8,7 +8,12 @@
 // Temporal: origin=2026-10-28T22:37:06Z updated=2026-10-28T22:37:06Z anchor=P15060742/C459/D523 basis=OBSERVED
 
 import { describe, it, expect, beforeEach } from 'bun:test'
-import { CircuitBreaker, getOrCreateCircuitBreaker, resetAllCircuitBreakers, getAllCircuitBreakerStates } from './circuit-breaker'
+import {
+  CircuitBreaker,
+  getOrCreateCircuitBreaker,
+  resetAllCircuitBreakers,
+  getAllCircuitBreakerStates,
+} from './circuit-breaker'
 
 describe('CircuitBreaker', () => {
   beforeEach(() => {

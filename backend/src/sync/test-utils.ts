@@ -107,10 +107,7 @@ export const assertConflictResolved = async (
 /**
  * Helper to wait for bridge to complete all pending syncs.
  */
-export const waitForBridgeSyncComplete = async (
-  bridge: FdbToPowerSyncBridge,
-  timeoutMs = 5000,
-): Promise<void> => {
+export const waitForBridgeSyncComplete = async (bridge: FdbToPowerSyncBridge, timeoutMs = 5000): Promise<void> => {
   const startTime = Date.now()
 
   while (Date.now() - startTime < timeoutMs) {

@@ -189,10 +189,7 @@ export class ConflictResolver {
   private resolveCrdt(conflict: ConflictRecord): ConflictResolutionResult {
     // Merge both versions field-by-field, taking the newer value
     const merged: Record<string, unknown> = {}
-    const allKeys = new Set([
-      ...Object.keys(conflict.fdbVersion),
-      ...Object.keys(conflict.deviceVersion),
-    ])
+    const allKeys = new Set([...Object.keys(conflict.fdbVersion), ...Object.keys(conflict.deviceVersion)])
 
     for (const key of allKeys) {
       const fdbVal = conflict.fdbVersion[key]
@@ -225,12 +222,7 @@ export class ConflictResolver {
    * Extract updatedAt/timestamp from a record for LWW comparison.
    */
   private extractTimestamp(version: Record<string, unknown>): Date | null {
-    const ts =
-      version.updatedAt ||
-      version.updated_at ||
-      version.timestamp ||
-      version.createdAt ||
-      version.created_at
+    const ts = version.updatedAt || version.updated_at || version.timestamp || version.createdAt || version.created_at
 
     if (ts instanceof Date) return ts
     if (typeof ts === 'string') {

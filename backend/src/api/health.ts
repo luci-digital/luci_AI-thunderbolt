@@ -49,7 +49,11 @@ export const createHealthRoutes = (app: Elysia) => {
 
       // Readiness: all circuits must be CLOSED for full readiness
       const isReady = circuitStates.length === 0 || circuitStates.every((cb) => cb.state === 'CLOSED')
-      const status: HealthStatus = isReady ? 'healthy' : circuitStates.some((cb) => cb.state === 'CLOSED') ? 'degraded' : 'unhealthy'
+      const status: HealthStatus = isReady
+        ? 'healthy'
+        : circuitStates.some((cb) => cb.state === 'CLOSED')
+          ? 'degraded'
+          : 'unhealthy'
 
       return {
         status,

@@ -41,9 +41,7 @@ type ApproveDeviceResponse = {
  * Get the current status of a device.
  */
 const getDeviceStatus = (
-  device:
-    | { trusted: boolean | null; approvalPending: boolean | null; revokedAt: Date | null }
-    | null,
+  device: { trusted: boolean | null; approvalPending: boolean | null; revokedAt: Date | null } | null,
 ): DeviceStatus => {
   if (!device) return 'rejected'
   if (device.revokedAt) return 'rejected'
