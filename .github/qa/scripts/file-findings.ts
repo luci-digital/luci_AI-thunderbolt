@@ -21,7 +21,7 @@ import {
 import { cleanLogLine, sanitize, secretPattern } from './sanitize'
 import { imageInfo, screenshotPath, type Verified, type VerifiedFinding } from './verify'
 
-export type Action = 'created' | 'commented' | 'regression' | 'suppressed' | 'rolled-up' | 'refused' | 'dry-run'
+export type Action = 'created' | 'commented' | 'regression' | 'suppressed' | 'refused' | 'dry-run'
 type Preview = { title?: string; issue?: string; labels?: string[]; body: string }
 /** An attachment the ticket was filed without, and the cleaned error that cost it. */
 export type LostAttachment = { kind: 'video' | 'screenshot'; reason: string }
@@ -43,8 +43,6 @@ export type Filed = {
 
 /** Linear's scale: lower is more urgent, which also makes it the sort order. */
 export const priority = { Urgent: 1, High: 2, Medium: 3, Low: 4 } satisfies Record<Severity, number>
-/** Separate caps so neither kind crowds out the other. */
-const ticketCap = { bug: 8, security: 3 }
 const regressionWindowMs = 60 * 24 * 60 * 60 * 1000
 /** Linear matches label names exactly, case included. */
 export const qaLabels = {
@@ -67,24 +65,39 @@ export type Scorecard = {
   precision: number | null
 }
 
+type LabelledTicket = { labels: { nodes: { name: string }[] } }
+
+/** Every `qa-agent` ticket of the last 28 days, archived ones too, read page by page from `after`. */
+const scorecardTickets = async (
+  fetchFn: typeof fetch,
+  key: string,
+  after: string | null = null,
+): Promise<LabelledTicket[]> => {
+  const { issues } = await linear<{
+    issues: { nodes: LabelledTicket[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } }
+  }>(
+    fetchFn,
+    key,
+    `query Scorecard($since: DateTimeOrDuration!, $label: String!, $after: String) {
+      issues(first: 250, after: $after, includeArchived: true, filter: { labels: { some: { name: { eq: $label } } }, createdAt: { gte: $since } }) {
+        nodes { labels { nodes { name } } }
+        pageInfo { hasNextPage endCursor }
+      }
+    }`,
+    { since: '-P28D', label: qaLabels.agent, after },
+  )
+  if (!issues.pageInfo.hasNextPage) return issues.nodes
+  return [...issues.nodes, ...(await scorecardTickets(fetchFn, key, issues.pageInfo.endCursor))]
+}
+
 /**
  * Precision over the last 28 days of `qa-agent` tickets: valid / (valid + not-a-bug + env-artifact).
  * Duplicates are counted but move neither precision nor the sample (`labelled`).
  */
 export const computeScorecard = async (fetchFn: typeof fetch, key: string): Promise<Scorecard> => {
-  // shortcut: one page of 250 tickets, far above the weekly cap of 9; paginate if that ever changes
-  const { issues } = await linear<{ issues: { nodes: { labels: { nodes: { name: string }[] } }[] } }>(
-    fetchFn,
-    key,
-    `query Scorecard($since: DateTimeOrDuration!, $label: String!) {
-      issues(first: 250, includeArchived: true, filter: { labels: { some: { name: { eq: $label } } }, createdAt: { gte: $since } }) {
-        nodes { labels { nodes { name } } }
-      }
-    }`,
-    { since: '-P28D', label: qaLabels.agent },
-  )
+  const tickets = await scorecardTickets(fetchFn, key)
   const [valid, notABug, duplicate, envArtifact] = triageLabels.map(
-    (label) => issues.nodes.filter((issue) => issue.labels.nodes.some((l) => l.name === label)).length,
+    (label) => tickets.filter((ticket) => ticket.labels.nodes.some((l) => l.name === label)).length,
   )
   const judged = valid + notABug + envArtifact
   return {
@@ -266,7 +279,6 @@ type Entry = Member & {
   platforms: string[]
   group: Member[]
 }
-type Overflow = { bug: Entry[]; security: Entry[] }
 
 /** Text an attacker-influenced page could have shaped; scanned for secrets before anything is sent. */
 const modelText = (f: Finding, spec: string) =>
@@ -402,8 +414,6 @@ export const fileFindings = async (opts: FileOptions): Promise<Filed[]> => {
     }),
   )
 
-  const opened = { bug: 0, security: 0 }
-  const overflow: Overflow = { bug: [], security: [] }
   const record = ({ group, fp, sev }: Entry, outcome: Omit<Filed, 'fp' | 'severity' | 'charterDir' | 'id'>) =>
     filed.push(...group.map(({ v }) => ({ fp, severity: sev, charterDir: v.charterDir, id: v.id, ...outcome })))
   /** The job log is public, so a dry run logs no ticket text; `filed.json` keeps it as `preview` unless security. */
@@ -443,31 +453,6 @@ export const fileFindings = async (opts: FileOptions): Promise<Filed[]> => {
     }
   }
 
-  const rollUp = async (kind: keyof typeof ticketCap) => {
-    const rest = overflow[kind]
-    if (rest.length === 0) return
-    const security = kind === 'security'
-    const noun = `${security ? 'security finding' : 'finding'}${rest.length > 1 ? 's' : ''}`
-    const title = `QA agent: ${rest.length} more ${noun} over the ${ticketCap[kind]}-ticket cap`
-    const lines = rest.map(({ f, fp, sev }) =>
-      security ? `- [qa:${fp}] ${sev}` : `- [qa:${fp}] ${sev} · ${f.area} · ${ticketView(f).title}`,
-    )
-    const description = [!security && runUrl && `**Run:** ${runUrl}`, 'Not filed individually this run:', ...lines]
-      .filter(Boolean)
-      .join('\n\n')
-    const labels = [qaLabels.agent, qaLabels.bug, ...(security ? [qaLabels.security] : [])]
-    const issue = live && ctx ? await createIssue(ctx, title, description, rest[0].sev, labels) : undefined
-    if (!issue) log(`[dry run] would create the roll-up "${title}"`)
-    for (const entry of rest) {
-      record(
-        entry,
-        issue
-          ? { action: 'rolled-up', issueId: issue.id, identifier: issue.identifier, url: issue.url }
-          : { action: 'dry-run', would: 'rolled-up' },
-      )
-    }
-  }
-
   for (const entry of entries) {
     await attempt(entry.fp, async () => {
       const { v, f, fp, sev } = entry
@@ -491,11 +476,6 @@ export const fileFindings = async (opts: FileOptions): Promise<Filed[]> => {
         })
         return
       }
-      const kind = f.area === 'security' ? 'security' : 'bug'
-      if (opened[kind] >= ticketCap[kind]) {
-        overflow[kind].push(entry)
-        return
-      }
       const regressionOf = decision.kind === 'regression' ? decision.issue : undefined
       const visual = f.oracle.type === 'visual'
       const names = [qaLabels.agent, qaLabels.bug, ...(f.area === 'security' ? [qaLabels.security] : [])]
@@ -517,13 +497,9 @@ export const fileFindings = async (opts: FileOptions): Promise<Filed[]> => {
           lostAttachments: lost.length ? lost : undefined,
         }
       })
-      // Only a ticket that exists takes a place under the cap, so a refused create leaves room for the next bug.
-      opened[kind]++
     })
   }
 
-  await attempt('the bug roll-up', () => rollUp('bug'))
-  await attempt('the security roll-up', () => rollUp('security'))
   await writeFile(join(outDir, 'filed.json'), JSON.stringify(filed, null, 2))
   if (failures.length) throw new Error(`Filing failed for ${failures.length}:\n${failures.join('\n')}`)
   return filed
